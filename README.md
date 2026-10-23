@@ -71,6 +71,14 @@ macOS／Linux：
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
+測試發行版（R8 壓縮、資源縮減、Debug 金鑰簽署、版本 `1.0.0-prerelease`）：
+
+```powershell
+.\gradlew.bat assemblePrerelease
+```
+
+產物：`app/build/outputs/apk/prerelease/app-prerelease.apk`。
+
 單元測試使用 API 26／29／35 模擬環境：
 
 ```powershell

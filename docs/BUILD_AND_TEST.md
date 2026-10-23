@@ -29,6 +29,23 @@ sdk.dir=C:/path/to/Android/Sdk
 adb install -r "app/build/outputs/apk/debug/app-debug.apk"
 ```
 
+### 測試發行版
+
+```powershell
+.\gradlew.bat assemblePrerelease
+```
+
+產物：`app/build/outputs/apk/prerelease/app-prerelease.apk`。
+
+`prerelease` 使用 `release` 基底並額外設定：
+
+- 版本名稱：`1.0.0-prerelease`
+- R8 程式碼壓縮與資源縮減
+- `debuggable false`
+- 使用 Debug 金鑰簽署
+
+此版本供測試與 GitHub Release 使用，不適合直接上架商店。
+
 ## 3. 測試
 
 ```powershell
