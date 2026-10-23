@@ -88,7 +88,7 @@ final class Reverb {
             float output = buffer[index];
             store = output * .65f + store * .35f;
             buffer[index] = input + store * .84f;
-            index = (index + 1) % buffer.length;
+            if (++index == buffer.length) index = 0;
             return output;
         }
     }
@@ -101,7 +101,7 @@ final class Reverb {
             float output = buffer[index];
             float value = input + output * .5f;
             buffer[index] = value;
-            index = (index + 1) % buffer.length;
+            if (++index == buffer.length) index = 0;
             return output - input;
         }
     }

@@ -103,8 +103,9 @@ final class PianoAudio implements AutoCloseable {
         try { return Integer.parseInt(value); } catch (Exception e) { return fallback; }
     }
     void duck(boolean enabled) { commands.add(() -> duck = enabled ? .25 : 1); }
-    void load(Score value) {
-        PlaybackProgram compiled = new PlaybackProgram(value); PlaybackClock newClock = new PlaybackClock(compiled, rate); newClock.speed(speed);
+    void load(Score value) { load(new PlaybackProgram(value)); }
+    void load(PlaybackProgram compiled) {
+        PlaybackClock newClock = new PlaybackClock(compiled, rate); newClock.speed(speed);
         boolean[] newMuted = compiled.initialMuted.clone(), pedals = new boolean[compiled.parts.size()]; long[] starts = new long[compiled.parts.size()];
         commands.add(() -> {
             playing = false; clear(); limiter.reset(); reverb.clear(); program = compiled; clock = newClock; clock.speed(speed); score = compiled.score; scoreLength = score.length();
@@ -346,7 +347,7 @@ final class PianoAudio implements AutoCloseable {
                     buffer[sample * 2] = (float) (left * master);
                     buffer[sample * 2 + 1] = (float) (right * master);
                 }
-                reverb.process(buffer, frames);
+                if (sounding) reverb.process(buffer, frames);
                 limiter.process(buffer, frames);
                 long low = 0, high = 0;
                 for (Voice v : voices) if (v.active && v.held) {

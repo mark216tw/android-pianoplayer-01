@@ -3,6 +3,8 @@ package com.minipianoplayer.app;
 import java.io.EOFException;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 
 /** Immutable, shared interleaved 16-bit PCM. Loading and decoding never run on the audio thread. */
@@ -29,11 +31,31 @@ final class PianoSample {
                         || rate < 8000 || rate > 96000 || le16(format, 12) != channels * 2) throw new IOException("音色須為 16-bit PCM WAV");
             } else if (name.equals("data")) {
                 if (channels == 0 || size < channels * 4 || size % (channels * 2) != 0) throw new IOException("音色 PCM 長度無效");
-                byte[] data = bytes(input, size); short[] pcm = new short[size / 2];
-                for (int i = 0; i < pcm.length; i++) pcm[i] = (short) le16(data, i * 2);
+                short[] pcm = new short[size / 2];
+                readPcm16(input, pcm);
                 return new PianoSample(root, rate, channels, pcm);
             } else skip(input, size);
             if ((size & 1) != 0) skip(input, 1);
+        }
+    }
+    private static void readPcm16(InputStream input, short[] pcm) throws IOException {
+        byte[] buffer = new byte[8192];
+        int offset = 0;
+        while (offset < pcm.length) {
+            int wanted = Math.min(buffer.length, (pcm.length - offset) * 2);
+            int count = 0;
+            while (count < wanted) {
+                int read = input.read(buffer, count, wanted - count);
+                if (read < 0) throw new EOFException("音色檔案不完整");
+                if (read == 0) {
+                    int value = input.read();
+                    if (value < 0) throw new EOFException("音色檔案不完整");
+                    buffer[count++] = (byte) value;
+                } else count += read;
+            }
+            int samples = count / 2;
+            ByteBuffer.wrap(buffer, 0, count).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(pcm, offset, samples);
+            offset += samples;
         }
     }
     private static String tag(byte[] data, int offset) { return new String(data, offset, 4, StandardCharsets.US_ASCII); }

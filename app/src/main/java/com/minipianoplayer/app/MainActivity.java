@@ -11,6 +11,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.view.Gravity;
 import android.view.View;
 import android.view.WindowManager;
@@ -48,11 +49,15 @@ public final class MainActivity extends Activity {
     private String lastSoundStatus = "";
     private String lastScoreDetail = "";
     private String lastTime = "";
+    private String shownTitle = "";
+    private boolean lastPlaying, lastIconPlaying;
+    private long lastDrawPosition = Long.MIN_VALUE, lastDetailUpdate;
     private Button speedButton;
     private ImageButton play, stop, moreButton;
     private java.util.List<Score.Channel> channels = java.util.Collections.emptyList();
     private SeekBar progress;
     private boolean busy, dragging, resumed, screenOn;
+    private double dragSeconds = -1;
     private int speedIndex = 2;
     private final double[] speeds = {.5, .75, 1, 1.25, 1.5};
     private long scoreLength;
@@ -60,26 +65,36 @@ public final class MainActivity extends Activity {
     private final Runnable refresh = new Runnable() {
         @Override public void run() {
             if (!resumed) return;
-            keepScreenOn(audio.playing);
+            boolean playing = audio.playing;
+            keepScreenOn(playing);
             syncPlayback();
-            if (!dragging && !score.notes.isEmpty()) progress.setProgress((int) (score.seconds((long) audio.position) * 1000 / Math.max(.001, durationSeconds)));
-            updatePlaybackButtons();
-            String timeText = formatTime(score.seconds((long) audio.position) / speeds[speedIndex]) + " / " + formatTime(durationSeconds / speeds[speedIndex]);
-            if (!timeText.equals(lastTime)) { time.setText(timeText); lastTime = timeText; }
-            if (!score.notes.isEmpty()) {
-                Score.Measure measure = score.measureAt((long) audio.position);
-                String info = score.notes.size() + " 音符 · " + channels.size() + " 聲部 · 樂曲 "
-                    + String.format(Locale.ROOT, "%.1f BPM", score.timeline().bpmAt(audio.position) * speeds[speedIndex])
-                    + (measure == null ? "" : " · 原譜第 " + measure.number + " 小節（第 " + measure.visit + " 次）")
-                    + (score.mutedVoices.isEmpty() ? "" : " · 靜音 " + score.mutedVoices.size() + " 聲部")
-                    + " · " + piano.rangeLabel();
-                if (!info.equals(lastScoreDetail)) { detail.setText(info); lastScoreDetail = info; }
+            long position = (long) audio.position;
+            if (!dragging && !score.notes.isEmpty()) {
+                int value = (int) (score.seconds(position) * 1000 / Math.max(.001, durationSeconds));
+                if (progress.getProgress() != value) progress.setProgress(value);
             }
-            piano.invalidate();
-            String sound = audio.soundStatus();
-            if (!sound.equals(lastSoundStatus)) { soundStatus.setText(sound); soundStatus.setContentDescription(sound); lastSoundStatus = sound; }
+            updatePlaybackButtons();
+            updateTime(dragging && dragSeconds >= 0 ? dragSeconds : score.seconds(position));
+            long now = SystemClock.uptimeMillis();
+            if (now - lastDetailUpdate >= 200) {
+                lastDetailUpdate = now;
+                if (!score.notes.isEmpty()) {
+                    Score.Measure measure = score.measureAt(position);
+                    String info = score.notes.size() + " 音符 · " + channels.size() + " 聲部 · 樂曲 "
+                        + String.format(Locale.ROOT, "%.1f BPM", score.timeline().bpmAt(position) * speeds[speedIndex])
+                        + (measure == null ? "" : " · 原譜第 " + measure.number + " 小節（第 " + measure.visit + " 次）")
+                        + (score.mutedVoices.isEmpty() ? "" : " · 靜音 " + score.mutedVoices.size() + " 聲部")
+                        + " · " + piano.rangeLabel();
+                    if (!info.equals(lastScoreDetail)) { detail.setText(info); lastScoreDetail = info; }
+                }
+                String sound = audio.soundStatus();
+                if (!sound.equals(lastSoundStatus)) { soundStatus.setText(sound); soundStatus.setContentDescription(sound); lastSoundStatus = sound; }
+            }
+            if (playing || playing != lastPlaying || position != lastDrawPosition) piano.invalidate();
+            lastPlaying = playing;
+            lastDrawPosition = position;
             if (audio.error != null) { String error = audio.error; audio.error = null; message("音訊無法啟動", error); }
-            handler.postDelayed(this, audio.playing ? 33 : 1000);
+            handler.postDelayed(this, playing ? 33 : 1000);
         }
     };
     @Override public void onCreate(Bundle state) {
@@ -92,7 +107,12 @@ public final class MainActivity extends Activity {
         files.execute(() -> {
             try {
                 String id = library.selected(); Score saved = id == null ? null : library.load(id);
-                runOnUiThread(() -> { if (isDestroyed()) return; currentId = id; useScore(saved != null ? saved : emptyScore()); setBusy(false); });
+                PlaybackProgram compiled = saved == null ? null : new PlaybackProgram(saved);
+                runOnUiThread(() -> {
+                    if (isDestroyed()) return; currentId = id;
+                    if (compiled == null) useScore(emptyScore()); else useScore(saved, compiled);
+                    setBusy(false);
+                });
             } catch (Exception e) {
                 runOnUiThread(() -> { setBusy(false); message("無法還原樂譜", e.getMessage()); });
             }
@@ -122,7 +142,9 @@ public final class MainActivity extends Activity {
     private void speedMenu() {
         String[] labels = {"0.5×", "0.75×", "1×", "1.25×", "1.5×"};
         dialog().setTitle("播放速度").setSingleChoiceItems(labels, speedIndex, (d, which) -> {
-            speedIndex = which; playback.speedIndex = which; audio.speed(speeds[which]); speedButton.setText(labels[which]); d.dismiss();
+            speedIndex = which; playback.speedIndex = which; audio.speed(speeds[which]); speedButton.setText(labels[which]);
+            updateTime(dragging && dragSeconds >= 0 ? dragSeconds : score.seconds((long) audio.position));
+            d.dismiss();
         }).setNegativeButton("取消", null).show();
     }
     private void moreMenu() {
@@ -286,7 +308,7 @@ public final class MainActivity extends Activity {
         LinearLayout controls = row();
         play = playbackButton(controls, R.drawable.ic_play, "播放", () -> { if (audio.playing) playback.pause(); else playback.play(); });
         stop = playbackButton(controls, R.drawable.ic_stop, "停止", this::stopPlayback);
-        progress = new SeekBar(this); progress.setMax(1000); progress.setTag("playbackProgress"); styleProgress(progress);
+        progress = new SeekBar(this); progress.setMax(1000); progress.setTag("playbackProgress"); progress.setContentDescription("播放進度"); styleProgress(progress);
         controls.addView(progress, new LinearLayout.LayoutParams(0, dp(38), 1));
         speedButton = button(new String[]{"0.5×", "0.75×", "1×", "1.25×", "1.5×"}[speedIndex], controls, this::speedMenu);
         speedButton.setTextSize(13); speedButton.setPadding(dp(10), 0, dp(10), 0); speedButton.setContentDescription("播放速度");
@@ -298,9 +320,24 @@ public final class MainActivity extends Activity {
         miniParams.setMargins(dp(10), 0, dp(10), dp(4));
         root.addView(miniPlayer, miniParams);
         progress.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            public void onProgressChanged(SeekBar bar, int value, boolean user) {}
-            public void onStartTrackingTouch(SeekBar bar) { dragging = true; }
-            public void onStopTrackingTouch(SeekBar bar) { audio.seek(score.tick(durationSeconds * bar.getProgress() / 1000)); dragging = false; }
+            public void onProgressChanged(SeekBar bar, int value, boolean user) {
+                if (!user || score.notes.isEmpty()) return;
+                dragSeconds = durationSeconds * value / 1000.0;
+                updateTime(dragSeconds);
+            }
+            public void onStartTrackingTouch(SeekBar bar) {
+                dragging = true;
+                dragSeconds = score.notes.isEmpty() ? -1 : score.seconds((long) audio.position);
+            }
+            public void onStopTrackingTouch(SeekBar bar) {
+                double target = dragSeconds >= 0 ? dragSeconds : durationSeconds * bar.getProgress() / 1000.0;
+                audio.seek(score.tick(target));
+                dragging = false;
+                dragSeconds = -1;
+                lastTime = "";
+                handler.removeCallbacks(refresh);
+                handler.postDelayed(refresh, 60);
+            }
         });
         setContentView(root);
     }
@@ -312,16 +349,23 @@ public final class MainActivity extends Activity {
         progress.setEnabled(idle && !score.notes.isEmpty());
     }
     private void updatePlaybackButtons() {
-        boolean available = !busy && !score.notes.isEmpty();
-        play.setEnabled(available);
-        play.setImageResource(audio.playing ? R.drawable.ic_pause : R.drawable.ic_play);
-        play.setContentDescription(audio.playing ? "暫停" : "播放");
-        stop.setEnabled(!busy && !score.notes.isEmpty());
-        play.setAlpha(play.isEnabled() ? 1f : .4f); stop.setAlpha(stop.isEnabled() ? 1f : .4f);
+        boolean available = !busy && !score.notes.isEmpty(), playing = audio.playing;
+        if (play.isEnabled() != available) play.setEnabled(available);
+        if (stop.isEnabled() != available) stop.setEnabled(available);
+        if (playing != lastIconPlaying) {
+            lastIconPlaying = playing;
+            play.setImageResource(playing ? R.drawable.ic_pause : R.drawable.ic_play);
+            play.setContentDescription(playing ? "暫停" : "播放");
+        }
+        float playAlpha = play.isEnabled() ? 1f : .4f, stopAlpha = stop.isEnabled() ? 1f : .4f;
+        if (play.getAlpha() != playAlpha) play.setAlpha(playAlpha);
+        if (stop.getAlpha() != stopAlpha) stop.setAlpha(stopAlpha);
     }
-    private void useScore(Score value) { playback.load(currentId, value); showScore(value); }
+    private void useScore(Score value) { useScore(value, new PlaybackProgram(value)); }
+    private void useScore(Score value, PlaybackProgram compiled) { playback.load(currentId, value, compiled); showScore(value); }
     private void showScore(Score value) {
-        score = value; scoreLength = value.length(); durationSeconds = score.seconds(scoreLength); channels = score.channels(); title.setText(value.title); lastScoreDetail = "";
+        score = value; scoreLength = value.length(); durationSeconds = score.seconds(scoreLength); channels = score.channels(); shownTitle = value.title; title.setText(value.title); lastScoreDetail = "";
+        dragging = false; dragSeconds = -1;
         piano.setScore(value);
         detail.setText(value.notes.isEmpty()
             ? "請到音譜庫按右上角 + 匯入 MusicXML／MIDI 樂譜"
@@ -331,7 +375,7 @@ public final class MainActivity extends Activity {
     private void syncPlayback() {
         if (playback.score == null) return;
         if (score != playback.score) { currentId = playback.id; showScore(playback.score); }
-        else if (!title.getText().toString().equals(score.title)) title.setText(score.title);
+        else if (!score.title.equals(shownTitle)) { shownTitle = score.title; title.setText(score.title); }
     }
     private void voiceSettings() {
         String[] names = new String[channels.size()]; boolean[] audible = new boolean[channels.size()];
@@ -341,7 +385,11 @@ public final class MainActivity extends Activity {
             audio.mute(which, !enabled); save(score);
         }).setPositiveButton("完成", null).show();
     }
-    private void stopPlayback() { audio.stop(); progress.setProgress(0); updatePlaybackButtons(); }
+    private void stopPlayback() {
+        audio.stop();
+        dragging = false; dragSeconds = -1;
+        progress.setProgress(0); updateTime(0); updatePlaybackButtons();
+    }
     private void save(Score value) {
         String id = currentId; if (id == null) return;
         Score snapshot = value.copy(); files.execute(() -> { try { library.update(id, snapshot); } catch (Exception e) { runOnUiThread(() -> toast("樂譜儲存失敗：" + e.getMessage())); } });
@@ -358,9 +406,12 @@ public final class MainActivity extends Activity {
     private void reloadLibrary(boolean playNow) {
         setBusy(true);
         files.execute(() -> {
-            try { String id = library.selected(); Score selected = id == null ? emptyScore() : library.load(id);
+            try {
+                String id = library.selected(); Score selected = id == null ? emptyScore() : library.load(id);
+                boolean reload = playNow || !java.util.Objects.equals(id, playback.id);
+                PlaybackProgram compiled = reload ? new PlaybackProgram(selected) : null;
                 runOnUiThread(() -> { if (isDestroyed()) return;
-                    if (playNow || !java.util.Objects.equals(id, playback.id)) { currentId = id; useScore(selected); }
+                    if (reload) { currentId = id; useScore(selected, compiled); }
                     else if (playback.score != null) { playback.score.title = selected.title; syncPlayback(); }
                     setBusy(false); if (playNow && !selected.notes.isEmpty()) { if (resumed) playback.play(); else pendingLibraryPlay = true; }
                 });
@@ -432,13 +483,21 @@ public final class MainActivity extends Activity {
                     Score imported = ScoreImport.read(input);
                     if (imported.notes.isEmpty()) throw new java.io.IOException("此樂譜沒有可播放的音符");
                     if (!imported.features.contains("MIDI") && imported.partNames.size() > 1) imported.warnings.add("此樂譜包含多個樂器聲部，將全部以鋼琴音色播放");
+                    PlaybackProgram compiled = new PlaybackProgram(imported);
                     String id = library.add(imported, "匯入");
-                    runOnUiThread(() -> { if (isDestroyed()) return; currentId = id; useScore(imported); setBusy(false); message("匯入摘要", imported.importSummary()); });
+                    runOnUiThread(() -> { if (isDestroyed()) return; currentId = id; useScore(imported, compiled); setBusy(false); message("匯入摘要", imported.importSummary()); });
                 } catch (Exception e) { runOnUiThread(() -> { setBusy(false); message("匯入失敗", e.getMessage()); }); }
             });
         } else setBusy(false);
     }
-    private static String formatTime(double seconds) { int value = (int) seconds; return String.format(Locale.ROOT, "%d:%02d", value / 60, value % 60); }
+    private void updateTime(double sourceSeconds) {
+        String text = formatTime(sourceSeconds / speeds[speedIndex]) + " / " + formatTime(durationSeconds / speeds[speedIndex]);
+        if (!text.equals(lastTime)) { time.setText(text); lastTime = text; }
+    }
+    private static String formatTime(double seconds) {
+        int value = (int) Math.max(0, seconds), minute = value / 60, second = value % 60;
+        return minute + ":" + (second < 10 ? "0" : "") + second;
+    }
     private void toast(String text) { if (!isDestroyed()) Toast.makeText(this, text, Toast.LENGTH_LONG).show(); }
     private void message(String title, String text) { if (!isDestroyed()) dialog().setTitle(title).setMessage(text == null ? "請稍後再試" : text).setPositiveButton("知道了", null).show(); }
     private void keepScreenOn(boolean on) {

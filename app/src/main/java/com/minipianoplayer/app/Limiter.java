@@ -3,10 +3,11 @@ package com.minipianoplayer.app;
 /** Stereo-linked look-ahead peak limiter. Transparent below the threshold. */
 final class Limiter {
     private final float[] delayLeft, delayRight, peaks;
+    private final int[] maxima;
     private final int size;
     private final double threshold, releaseCoefficient;
     private double gain = 1;
-    private int index;
+    private int index, maximaHead, maximaCount;
 
     Limiter(int rate, double threshold, double lookaheadSeconds, double releaseSeconds) {
         this.threshold = threshold;
@@ -15,24 +16,32 @@ final class Limiter {
         delayLeft = new float[size];
         delayRight = new float[size];
         peaks = new float[size];
+        maxima = new int[size];
         releaseCoefficient = 1 - Math.exp(-1.0 / (rate * releaseSeconds));
     }
 
     void reset() {
         java.util.Arrays.fill(delayLeft, 0); java.util.Arrays.fill(delayRight, 0);
-        java.util.Arrays.fill(peaks, 0); index = 0; gain = 1;
+        java.util.Arrays.fill(peaks, 0); index = maximaHead = maximaCount = 0; gain = 1;
     }
 
     void process(float[] buffer, int frames) {
         for (int frame = 0; frame < frames; frame++) {
             float left = buffer[frame * 2], right = buffer[frame * 2 + 1];
+            if (maximaCount > 0 && maxima[maximaHead] == index) { maximaHead = maximaHead + 1 == size ? 0 : maximaHead + 1; maximaCount--; }
             delayLeft[index] = left; delayRight[index] = right;
             peaks[index] = Math.max(Math.abs(left), Math.abs(right));
-            double maximum = 0;
-            for (int i = 0; i < size; i++) maximum = Math.max(maximum, peaks[i]);
+            while (maximaCount > 0) {
+                int tail = maximaHead + maximaCount - 1; if (tail >= size) tail -= size;
+                if (peaks[maxima[tail]] > peaks[index]) break;
+                maximaCount--;
+            }
+            int tail = maximaHead + maximaCount; if (tail >= size) tail -= size;
+            maxima[tail] = index; maximaCount++;
+            double maximum = peaks[maxima[maximaHead]];
             double target = maximum > threshold ? threshold / maximum : 1;
             if (target < gain) gain = target; else gain += (target - gain) * releaseCoefficient;
-            int read = (index + 1) % size;
+            int read = index + 1 == size ? 0 : index + 1;
             buffer[frame * 2] = clamp(delayLeft[read] * gain);
             buffer[frame * 2 + 1] = clamp(delayRight[read] * gain);
             index = read;

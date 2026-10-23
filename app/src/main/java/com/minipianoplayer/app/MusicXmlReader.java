@@ -173,7 +173,7 @@ final class MusicXmlReader {
         tempos.putIfAbsent(0L, (double) score.bpm);
         List<Integer> route = PlaybackRoute.expand(bars, message -> warn(score, message));
         score.originalMeasureCount = count;
-        int previousBar = -1; long output = 0; Map<String, Score.Note> ties = new HashMap<>(); int[] visits = new int[count];
+        int previousBar = -1; long output = 0; Map<String, Integer> ties = new HashMap<>(); int[] visits = new int[count];
         Map<String, Boolean> playedPedals = new HashMap<>();
         for (int index : route) {
             PlaybackRoute.Bar bar = bars.get(index); boolean jump = previousBar >= 0 && previousBar + 1 != index;
@@ -196,16 +196,23 @@ final class MusicXmlReader {
                 if (index >= part.notes.size()) continue;
                 for (RawNote raw : part.notes.get(index)) {
                     long tick = output + raw.local; String key = part.id + "\u001f" + raw.voice + "\u001f" + raw.pitch;
-                    Score.Note previous = raw.tieStop ? ties.remove(key) : null;
+                    Integer previousIndex = raw.tieStop ? ties.remove(key) : null;
+                    Score.Note previous = previousIndex == null ? null : score.notes.get(previousIndex);
                     if (raw.tieStop && previous == null) warn(score, "部分延音線終點未找到相同樂器／聲部的起點");
-                    if (previous != null && previous.end() != tick) { warn(score, "時間不連續的延音線已分開起音"); previous = null; }
+                    if (previous != null && previous.end() != tick) { warn(score, "時間不連續的延音線已分開起音"); previous = null; previousIndex = null; }
                     Score.Note note;
+                    int noteIndex;
                     if (previous != null) {
-                        score.notes.remove(previous);
                         note = new Score.Note(raw.pitch, previous.start, previous.duration + raw.duration, previous.velocity, part.id, raw.voice, previous.staff, previous.staffMask | (1 << (raw.staff - 1)));
+                        score.notes.set(previousIndex, note);
+                        noteIndex = previousIndex;
                         score.features.add(previous.staff != raw.staff ? "跨譜表延音線" : "延音線");
-                    } else note = new Score.Note(raw.pitch, tick, raw.duration, raw.velocity, part.id, raw.voice, raw.staff);
-                    score.notes.add(note); if (raw.tieStart) ties.put(key, note);
+                    } else {
+                        note = new Score.Note(raw.pitch, tick, raw.duration, raw.velocity, part.id, raw.voice, raw.staff);
+                        noteIndex = score.notes.size();
+                        score.notes.add(note);
+                    }
+                    if (raw.tieStart) ties.put(key, noteIndex);
                     if (score.notes.size() > 100000) throw new IOException("展開反覆後超過 100,000 音符");
                 }
             }

@@ -25,12 +25,13 @@ public final class Score {
     public long endTick;
     public int originalMeasureCount;
     private TempoMap timeline;
+    private List<Channel> cachedChannels;
     private long cachedLength = -1;
     private int cachedNotes = -1, cachedPedals = -1;
 
     public static final class Note {
         public final int pitch, velocity;
-        public final String part, voice;
+        public final String part, voice, channelKey;
         public final int staff, staffMask;
         public final long start, duration;
         public Note(int pitch, long start, long duration, int velocity) {
@@ -43,9 +44,10 @@ public final class Score {
             this.pitch = pitch; this.start = Math.max(0, start);
             this.duration = Math.max(1, duration); this.velocity = Math.max(1, Math.min(127, velocity));
             this.part = part; this.voice = voice; this.staff = staff; this.staffMask = staffMask;
+            this.channelKey = part + "\u001f" + voice;
         }
         public long end() { return start + duration; }
-        public String channelKey() { return part + "\u001f" + voice; }
+        public String channelKey() { return channelKey; }
     }
     public static final class Pedal {
         public final long tick;
@@ -67,6 +69,7 @@ public final class Score {
         Channel(String key, String part, String voice, String label) { this.key = key; this.part = part; this.voice = voice; this.label = label; }
     }
     public List<Channel> channels() {
+        if (cachedChannels != null) return cachedChannels;
         Map<String, Note> first = new LinkedHashMap<>(); Map<String, Integer> masks = new LinkedHashMap<>();
         for (Note n : notes) { first.putIfAbsent(n.channelKey(), n); masks.put(n.channelKey(), masks.getOrDefault(n.channelKey(), 0) | n.staffMask); }
         List<Channel> result = new ArrayList<>();
@@ -75,7 +78,7 @@ public final class Score {
             for (int staff = 1; staff <= 32; staff++) if ((mask & (1 << (staff - 1))) != 0) { if (staves.length() > 0) staves.append("、"); staves.append(staff); }
             result.add(new Channel(entry.getKey(), n.part, n.voice, partNames.getOrDefault(n.part, n.part) + " · 聲部 " + n.voice + "（譜表 " + staves + "）"));
         }
-        return result;
+        return cachedChannels = result;
     }
     public void sort() {
         notes.sort(Comparator.comparingLong((Note n) -> n.start).thenComparingInt(n -> n.pitch).thenComparing(n -> n.part).thenComparing(n -> n.voice));
@@ -84,7 +87,7 @@ public final class Score {
         java.util.TreeMap<Long, Double> events = new java.util.TreeMap<>(); for (Tempo tempo : tempos) events.put(tempo.tick, tempo.bpm);
         tempos.clear(); double previous = Double.NaN;
         for (Map.Entry<Long, Double> entry : events.entrySet()) if (Double.isNaN(previous) || Math.abs(previous - entry.getValue()) > .00001) { tempos.add(new Tempo(entry.getKey(), entry.getValue())); previous = entry.getValue(); }
-        timeline = null; cachedLength = -1;
+        timeline = null; cachedChannels = null; cachedLength = -1;
     }
     public long length() {
         if (cachedLength >= 0 && cachedNotes == notes.size() && cachedPedals == pedals.size()) return cachedLength;

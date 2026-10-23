@@ -19,7 +19,7 @@ final class PianoView extends View {
     private final ArrayList<Key> keys = new ArrayList<>();
     private final ArrayList<Integer> whitePitches = new ArrayList<>();
     private final List<Score.Channel> channels = new ArrayList<>();
-    private final RectF rollRect = new RectF(), keyboardRect = new RectF(), noteRect = new RectF(), pulseBounds = new RectF();
+    private final RectF rollRect = new RectF(), keyboardRect = new RectF(), noteRect = new RectF(), pulseBounds = new RectF(), glowRect = new RectF();
     private final float[] pitchCenter = new float[128];
     private int[] notePitch = new int[0];
     private final PianoAudio audio;
@@ -27,11 +27,13 @@ final class PianoView extends View {
     private static final int[] WHITE = {0, 2, 4, 5, 7, 9, 11};
     private static final String[] NAMES = {"C", "D", "E", "F", "G", "A", "B"};
     private static final String[] PITCH_NAMES = {"C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"};
+    private static final String[] NOTE_NAMES = new String[128];
+    static { for (int i = 0; i < NOTE_NAMES.length; i++) NOTE_NAMES[i] = createNoteName(i); }
     private int base = 48, topWhite = 88, whites = 24;
     private int[] noteChannel = new int[0], noteStaff = new int[0];
     private double[] noteStart = new double[0], noteEnd = new double[0], measureSeconds = new double[0];
-    private String[] measureNumbers = new String[0];
-    private int[] measureVisits = new int[0];
+    private String[] measureLabels = new String[0];
+    private String rangeLabelText = "";
     private Score score;
     private double futureSeconds = 7, pastSeconds = 2.5;
     private float density = 1f, scaledDensity = 1f, playheadX, pxPerSecond, rulerWidth, rollLaneTop;
@@ -45,7 +47,8 @@ final class PianoView extends View {
         final int pitch;
         final boolean black;
         final RectF bounds;
-        Key(int pitch, boolean black, RectF bounds) { this.pitch = pitch; this.black = black; this.bounds = bounds; }
+        final String label;
+        Key(int pitch, boolean black, RectF bounds, String label) { this.pitch = pitch; this.black = black; this.bounds = bounds; this.label = label; }
     }
 
     PianoView(Context context, PianoAudio audio) {
@@ -101,22 +104,25 @@ final class PianoView extends View {
             base = whiteAtOrBelow(low);
             topWhite = whiteAtOrAbove(high);
         }
+        updateRangeLabel();
         measureSeconds = new double[value == null ? 0 : value.measures.size()];
-        measureNumbers = new String[measureSeconds.length];
-        measureVisits = new int[measureSeconds.length];
+        measureLabels = new String[measureSeconds.length];
         for (int i = 0; i < measureSeconds.length; i++) {
             Score.Measure measure = value.measures.get(i);
             measureSeconds[i] = value.seconds(measure.tick);
-            measureNumbers[i] = measure.number;
-            measureVisits[i] = measure.visit;
+            measureLabels[i] = measure.number + (measure.visit > 1 ? " (" + measure.visit + ")" : "");
         }
         rebuild();
         invalidate();
     }
 
-    String rangeLabel() {
-        if (whites <= 0) return "";
-        return noteName(base) + " – " + noteName(topWhite) + " · " + whites + " 鍵";
+    String rangeLabel() { return rangeLabelText; }
+
+    private void updateRangeLabel() {
+        int count = 0;
+        for (int pitch = base; pitch <= topWhite; pitch++) if (isWhite(pitch)) count++;
+        whites = count;
+        rangeLabelText = count == 0 ? "" : noteName(base) + " – " + noteName(topWhite) + " · " + count + " 鍵";
     }
 
     int whites() { return whites; }
@@ -147,7 +153,9 @@ final class PianoView extends View {
         return value;
     }
 
-    private static String noteName(int pitch) {
+    private static String noteName(int pitch) { return NOTE_NAMES[Math.max(0, Math.min(127, pitch))]; }
+
+    private static String createNoteName(int pitch) {
         int pc = pitch % 12;
         int octave = pitch / 12 - 1;
         for (int i = 0; i < WHITE.length; i++) if (WHITE[i] == pc) return NAMES[i] + octave;
@@ -166,8 +174,10 @@ final class PianoView extends View {
         whitePitches.clear();
         for (int pitch = base; pitch <= topWhite; pitch++) if (isWhite(pitch)) whitePitches.add(pitch);
         whites = whitePitches.size();
-        if (whites == 0) return;
+        if (whites == 0) { rangeLabelText = ""; return; }
+        rangeLabelText = noteName(base) + " – " + noteName(topWhite) + " · " + whites + " 鍵";
         float keyWidth = getWidth() / (float) whites;
+        boolean compact = keyWidth < 28 * density, hidden = keyWidth < 15 * density;
         float keyboardHeight = Math.min(Math.min(132 * density, getHeight() * .30f), Math.max(64 * density, keyWidth * 5.6f));
         float split = Math.round(getHeight() - keyboardHeight);
         rollRect.set(0, 0, getWidth(), split);
@@ -177,7 +187,10 @@ final class PianoView extends View {
         for (int i = 0; i < whites; i++) {
             int pitch = whitePitches.get(i);
             float left = i * keyWidth;
-            keys.add(new Key(pitch, false, new RectF(left + .5f, keyboardRect.top + 1, left + keyWidth - .5f, keyboardRect.bottom - 1)));
+            int pc = pitch % 12, degree = 0;
+            for (int j = 0; j < WHITE.length; j++) if (WHITE[j] == pc) degree = j;
+            String label = hidden || (compact && pc != 0) ? null : compact ? "C" + (pitch / 12 - 1) : NAMES[degree] + (pitch / 12 - 1);
+            keys.add(new Key(pitch, false, new RectF(left + .5f, keyboardRect.top + 1, left + keyWidth - .5f, keyboardRect.bottom - 1), label));
             pitchCenter[pitch] = left + keyWidth / 2;
         }
         for (int i = 0; i < whites - 1; i++) {
@@ -186,7 +199,7 @@ final class PianoView extends View {
             int pitch = first + 1;
             float center = (i + 1) * keyWidth;
             float half = keyWidth * .31f;
-            keys.add(new Key(pitch, true, new RectF(center - half, keyboardRect.top, center + half, keyboardRect.top + keyboardRect.height() * .61f)));
+            keys.add(new Key(pitch, true, new RectF(center - half, keyboardRect.top, center + half, keyboardRect.top + keyboardRect.height() * .61f), null));
             pitchCenter[pitch] = center;
         }
         for (int i = 0; i < notePitch.length; i++) if (pitchCenter[notePitch[i]] < 0) pitchCenter[notePitch[i]] = keyboardRect.left;
@@ -279,7 +292,7 @@ final class PianoView extends View {
             if (x < contentLeft || x > rollRect.right) continue;
             float fade = Math.min(1f, (x - contentLeft) / fadeWidth);
             if (fade <= .02f) continue;
-            String label = measureNumbers[i] + (measureVisits[i] > 1 ? " (" + measureVisits[i] + ")" : "");
+            String label = measureLabels[i];
             float anchor = x + 3 * density;
             if (anchor < lastRight + labelGap) continue;
             labelPaint.setAlpha((int) (255 * fade));
@@ -302,9 +315,9 @@ final class PianoView extends View {
             boolean isMuted = muted(i);
             if (active && !isMuted) {
                 paint.setColor(Color.argb(70, Color.red(color), Color.green(color), Color.blue(color)));
-                RectF glow = new RectF(noteRect);
-                glow.inset(-2 * density, -2 * density);
-                canvas.drawRoundRect(glow, 5 * density, 5 * density, paint);
+                glowRect.set(noteRect);
+                glowRect.inset(-2 * density, -2 * density);
+                canvas.drawRoundRect(glowRect, 5 * density, 5 * density, paint);
             }
             int alpha = isMuted ? 42 : dark ? 170 + (noteStaff[i] == 2 ? 30 : 60) : 255;
             paint.setColor(Color.argb(Math.min(255, alpha), Color.red(color), Color.green(color), Color.blue(color)));
@@ -337,7 +350,7 @@ final class PianoView extends View {
         paint.setColor(keyboardBackground);
         canvas.drawRect(keyboardRect, paint);
         long now = SystemClock.uptimeMillis();
-        float keyWidth = whites == 0 ? 0 : keyboardRect.width() / whites;
+        boolean compact = whites > 0 && keyboardRect.width() / whites < 28 * density;
         for (Key key : keys) {
             long attackTime = audio.attackTime(key.pitch), age = now - attackTime;
             float pulse = attackTime > 0 && age >= 0 && age < ATTACK_FLASH_MS ? 1 - age / (float) ATTACK_FLASH_MS : 0;
@@ -361,16 +374,11 @@ final class PianoView extends View {
                 float radius = Math.min(key.bounds.width() * .27f, 16 * density) * (1 - pulse * .7f);
                 canvas.drawCircle(key.bounds.centerX(), key.bounds.bottom - (key.black ? 22 : 44) * density, radius, stroke);
             }
-            if (!key.black) {
-                int pc = key.pitch % 12, degree = 0;
-                for (int j = 0; j < 7; j++) if (WHITE[j] == pc) degree = j;
-                boolean onlyC = keyWidth < 28 * density;
-                if (keyWidth < 15 * density || (onlyC && pc != 0)) continue;
+            if (key.label != null) {
                 paint.setColor(lit ? UiTheme.foreground(primary) : dark ? 0xFFB8C9C6 : 0xFF526963);
                 paint.setTextAlign(Paint.Align.CENTER);
-                paint.setTextSize(Math.min((onlyC ? 12 : 16) * scaledDensity, key.bounds.width() * .36f));
-                String label = onlyC ? "C" + (key.pitch / 12 - 1) : NAMES[degree] + (key.pitch / 12 - 1);
-                canvas.drawText(label, key.bounds.centerX(), key.bounds.bottom - 12 * density, paint);
+                paint.setTextSize(Math.min((compact ? 12 : 16) * scaledDensity, key.bounds.width() * .36f));
+                canvas.drawText(key.label, key.bounds.centerX(), key.bounds.bottom - 12 * density, paint);
             }
         }
     }

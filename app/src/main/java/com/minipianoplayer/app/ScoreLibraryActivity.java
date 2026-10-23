@@ -35,6 +35,7 @@ public final class ScoreLibraryActivity extends Activity {
     private final ExecutorService files = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Map<String, Button> playButtons = new LinkedHashMap<>();
+    private final Map<String, String> playStates = new LinkedHashMap<>();
     private final Runnable playbackRefresh = new Runnable() {
         @Override public void run() {
             updatePlayButtons();
@@ -171,6 +172,7 @@ public final class ScoreLibraryActivity extends Activity {
         if (body == null) return;
         body.removeAllViews();
         playButtons.clear();
+        playStates.clear();
         List<ScoreLibrary.Entry> shown = filterAndSort(entries, query, sortMode);
         count.setText(shown.size() + " 首樂曲");
         if (shown.isEmpty()) {
@@ -211,6 +213,9 @@ public final class ScoreLibraryActivity extends Activity {
         for (Map.Entry<String, Button> item : playButtons.entrySet()) {
             boolean active = item.getKey().equals(activeId);
             boolean pause = active && playing;
+            String state = pause ? "pause" : active ? "resume" : "play";
+            if (state.equals(playStates.get(item.getKey()))) continue;
+            playStates.put(item.getKey(), state);
             item.getValue().setText(pause ? "❚❚ 暫停" : "▶ 播放");
             item.getValue().setContentDescription(pause ? "暫停播放" : active ? "繼續播放" : "播放");
         }
@@ -233,11 +238,11 @@ public final class ScoreLibraryActivity extends Activity {
             updatePlayButtons();
             return;
         }
-        final Score[] loaded = new Score[1];
-        perform(() -> loaded[0] = library.load(entry.id), () -> {
+        final Score[] loaded = new Score[1]; final PlaybackProgram[] compiled = new PlaybackProgram[1];
+        perform(() -> { loaded[0] = library.load(entry.id); compiled[0] = new PlaybackProgram(loaded[0]); }, () -> {
             if (playback == null) return;
             library.select(entry.id);
-            playback.load(entry.id, loaded[0]);
+            playback.load(entry.id, loaded[0], compiled[0]);
             playback.play();
             updatePlayButtons();
         });

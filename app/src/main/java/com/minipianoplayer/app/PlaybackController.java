@@ -20,7 +20,8 @@ final class PlaybackController {
         instance.clients++; return instance;
     }
     static synchronized PlaybackController peek() { return instance; }
-    void load(String id, Score score) { this.id = id; this.score = score; audio.load(score); }
+    void load(String id, Score score) { load(id, score, new PlaybackProgram(score)); }
+    void load(String id, Score score, PlaybackProgram compiled) { this.id = id; this.score = score; audio.load(compiled); }
     void play() {
         if (score == null || score.notes.isEmpty()) return;
         serviceActive = true;
