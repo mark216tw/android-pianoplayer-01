@@ -203,7 +203,7 @@ final class PianoView extends View {
 
     private int channelColor(int channel, int staff) {
         int hue = (themeHue + channel * 43 + (staff == 2 ? 24 : 0)) % 360;
-        return UiTheme.color(hue);
+        return UiTheme.noteColor(hue, dark);
     }
 
     private boolean muted(int note) {
@@ -306,7 +306,7 @@ final class PianoView extends View {
                 glow.inset(-2 * density, -2 * density);
                 canvas.drawRoundRect(glow, 5 * density, 5 * density, paint);
             }
-            int alpha = isMuted ? 42 : 170 + (int) (noteStaff[i] == 2 ? 30 : 60);
+            int alpha = isMuted ? 42 : dark ? 170 + (noteStaff[i] == 2 ? 30 : 60) : 255;
             paint.setColor(Color.argb(Math.min(255, alpha), Color.red(color), Color.green(color), Color.blue(color)));
             canvas.drawRoundRect(noteRect, 3 * density, 3 * density, paint);
             if (active && !isMuted) {

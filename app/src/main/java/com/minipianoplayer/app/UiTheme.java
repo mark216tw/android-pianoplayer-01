@@ -30,6 +30,7 @@ final class UiTheme {
     }
     static SharedPreferences preferences(Context context) { return context.getSharedPreferences("MainActivity", Context.MODE_PRIVATE); }
     static int color(int hue) { return Color.HSVToColor(new float[]{hue, .45f, .96f}); }
+    static int noteColor(int hue, boolean dark) { return dark ? color(hue) : Color.HSVToColor(new float[]{hue, .80f, .66f}); }
     static int foreground(int color) { return contrast(color, Color.BLACK) >= contrast(color, Color.WHITE) ? Color.BLACK : Color.WHITE; }
     static double contrast(int a, int b) { double x = luminance(a), y = luminance(b); return (Math.max(x, y) + .05) / (Math.min(x, y) + .05); }
     private static double luminance(int color) { return .2126 * linear(Color.red(color)) + .7152 * linear(Color.green(color)) + .0722 * linear(Color.blue(color)); }

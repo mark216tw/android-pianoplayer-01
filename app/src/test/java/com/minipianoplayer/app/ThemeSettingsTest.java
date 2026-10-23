@@ -1,6 +1,7 @@
 package com.minipianoplayer.app;
 
 import android.content.res.Configuration;
+import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Looper;
 import android.view.MotionEvent;
@@ -95,6 +96,16 @@ public class ThemeSettingsTest {
         try (var controller = Robolectric.buildActivity(SettingsActivity.class).setup()) {
             SettingsActivity activity = controller.get(); activity.onBackPressed(); assertTrue(activity.isFinishing());
         }
+    }
+    @Test public void rollNotesUseDeeperLightColorsButKeepDarkPastels() {
+        float[] light = new float[3], dark = new float[3], primary = new float[3];
+        Color.colorToHSV(UiTheme.noteColor(205, false), light);
+        assertEquals(.80f, light[1], .01f);
+        assertEquals(.66f, light[2], .01f);
+        assertTrue(UiTheme.contrast(UiTheme.noteColor(205, false), 0xFFF2F8F5) >= 2.5);
+        Color.colorToHSV(UiTheme.noteColor(205, true), dark);
+        Color.colorToHSV(UiTheme.color(205), primary);
+        assertArrayEquals(primary, dark, .001f);
     }
     @Test public void soundSelectionAndReverbRemainVisibleAndPersist() {
         try (var controller = Robolectric.buildActivity(MainActivity.class).setup()) {
