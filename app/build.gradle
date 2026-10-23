@@ -1,0 +1,49 @@
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'com.minipianoplayer.app'
+    compileSdk 36
+    defaultConfig {
+        applicationId 'com.minipianoplayer.app'
+        minSdk 26
+        targetSdk 36
+        versionCode 1
+        versionName '1.0.0'
+    }
+    androidResources {
+        noCompress += ['flac']
+    }
+    buildTypes {
+        prerelease {
+            initWith release
+            versionNameSuffix '-prerelease'
+            minifyEnabled true
+            shrinkResources true
+            debuggable false
+            signingConfig signingConfigs.debug
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+            matchingFallbacks = ['release']
+        }
+    }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    testOptions { unitTests.includeAndroidResources = true }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+    testImplementation 'org.robolectric:robolectric:4.16.1'
+}
+
+tasks.withType(Test).configureEach {
+    maxHeapSize = '1024m'
+    if (project.hasProperty('testJavaHome')) {
+        executable = "${project.property('testJavaHome')}/bin/java${System.getProperty('os.name').startsWith('Windows') ? '.exe' : ''}"
+    }
+    if (project.hasProperty('attachmentTestFile')) {
+        systemProperty 'minipianoplayer.attachmentTestFile', project.property('attachmentTestFile')
+    }
+}

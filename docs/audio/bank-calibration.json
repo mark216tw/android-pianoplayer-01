@@ -1,0 +1,64 @@
+{
+  "sampleRate": 48000,
+  "attackSeconds": 0.05,
+  "sustainSeconds": 0.25,
+  "attackWeight": 0.7,
+  "sustainWeight": 0.3,
+  "targetLayer": "medium",
+  "maxGain": 10.0,
+  "before": {
+    "soft": {
+      "metricSpreadDb": 9.322,
+      "attackSpreadDb": 9.62,
+      "sustainSpreadDb": 12.864,
+      "medianMetricDb": -19.241,
+      "medianAttackDb": -18.426,
+      "medianSustainDb": -20.08
+    },
+    "medium": {
+      "metricSpreadDb": 8.49,
+      "attackSpreadDb": 8.655,
+      "sustainSpreadDb": 11.911,
+      "medianMetricDb": -19.459,
+      "medianAttackDb": -18.641,
+      "medianSustainDb": -20.529
+    },
+    "loud": {
+      "metricSpreadDb": 7.045,
+      "attackSpreadDb": 8.226,
+      "sustainSpreadDb": 10.383,
+      "medianMetricDb": -19.464,
+      "medianAttackDb": -18.79,
+      "medianSustainDb": -20.102
+    }
+  },
+  "after": {
+    "soft": {
+      "metricSpreadDb": 0.982,
+      "attackSpreadDb": 1.235,
+      "sustainSpreadDb": 6.014,
+      "medianMetricDb": -19.457,
+      "medianAttackDb": -19.038,
+      "medianSustainDb": -20.758
+    },
+    "medium": {
+      "metricSpreadDb": 0.0,
+      "attackSpreadDb": 1.136,
+      "sustainSpreadDb": 5.243,
+      "medianMetricDb": -19.457,
+      "medianAttackDb": -18.973,
+      "medianSustainDb": -20.851
+    },
+    "loud": {
+      "metricSpreadDb": 0.0,
+      "attackSpreadDb": 1.985,
+      "sustainSpreadDb": 6.871,
+      "medianMetricDb": -19.457,
+      "medianAttackDb": -18.992,
+      "medianSustainDb": -20.783
+    }
+  },
+  "maxGainAfter": 10.0,
+  "maxAttackPeakAfter": 0.482851,
+  "maxFullPeakAfter": 0.528522
+}
