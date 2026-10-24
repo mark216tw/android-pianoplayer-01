@@ -64,9 +64,12 @@
 
 - `PianoAudio` 使用連續 AudioTrack 串流。
 - 播放事件由 `PlaybackProgram` 預先編譯，音訊執行緒不安裝 XML 解析器。
-- 取樣音色：Salamander 三力度層，逐鍵 K 加權起音／持續響度校正，邊界以等功率交叉淡化。
+- 取樣音色：Salamander 三力度層、VSCO 2 CE 小提琴 Arco p／f 與 Spiccato v1／v2，逐鍵 K 加權起音／持續響度校正，邊界以等功率交叉淡化；小提琴以 `releaseSeconds` 與 `sustainPedal` 覆寫鋼琴踏板行為，並以「小提琴音量」偏好（預設 75%）平衡大鋼琴音量。
+- 自動音色：`InstrumentDetector` 依 MusicXML 聲部名稱、`score-instrument` 與 `midi-program` 分配每個聲部；中提琴／大提琴／低音提琴標記為低音弦樂。`PlaybackProgram` 保存 `noteSounds`、`noteLowStrings` 與 `requiredSounds`。
+- 音譜庫切換：先淡出舊音軌，再載入新曲；`SampleBankStore.ready()` 會等主要鋼琴／小提琴 bank 就緒後才開始播放，避免第一顆音暫用合成音色。
+- 小提琴路由：`ViolinRouting` 依音高與音長選擇低音鋼琴（小提琴聲部 21–54）、Spiccato（21–96 且音長 < 0.35 秒）或 Arco；中提琴／大提琴預設允許低音使用移調小提琴。Arco 與 Spic 85–96 套用隨音高增加的二級低通。
 - 合成音色：正弦查表＋泛音＋衰減包絡。
-- 踏板：依 part 記錄 pedal 狀態，放開時釋放未按住音符。
+- 踏板：依 part 記錄 pedal 狀態，放開時釋放未按住音符；Arco／Spic 忽略踏板，低音鋼琴保留踏板。
 - 靜音：依聲部頻道淡出或恢復。
 - 限幅：`Limiter` look-ahead；殘響：`Reverb`。
 - `duck()` 供音訊焦點暫時降低音量。
@@ -98,7 +101,9 @@
 - 儲存：ScoreStorage 原子寫入、聲部靜音。
 - 背景播放：服務控制、Activity 重建、UI 隱藏。
 - 匯入政策：檔案選擇器 MIME 類型。
-- 音色響度：`SampleBankLoudnessTest` 檢查逐鍵與力度層響度差；`tools/measure_piano_loudness.py --check` 可重現量測。
+- 音色響度：`SampleBankLoudnessTest`、`ViolinBankTest`、`SpicBankTest` 與 `PianoLowBankTest` 檢查逐鍵、力度層、局部音域與音色設定；`tools/measure_piano_loudness.py --check` 可重現鋼琴量測。
+- 自動音色：`InstrumentDetectorTest`、`AutoInstrumentTest` 檢查樂器判定、聲部路由與所需音色庫。
+- 小提琴路由：`ViolinRoutingTest` 檢查低音鋼琴、短音跳弓與長音／高音長弓。
 
 ## 8. APP 圖示
 
@@ -106,4 +111,4 @@
 - 前景：`drawable/ic_piano_foreground.xml`，只保留鋼琴本體與琴鍵，已移除上方裝飾。
 - 單色圖示：`drawable/ic_piano_monochrome.xml`，與前景一致。
 - 背景：`drawable/ic_launcher_background.xml`，冷色系斜向漸層 `#B3EAF5 → #5FC7D8 → #1F6F8B`。
-- 圖示與原創文件同採 MIT License；Salamander 採樣另依 CC BY 3.0。
+- 圖示與原創文件同採 MIT License；Salamander 採樣另依 CC BY 3.0，VSCO 2 CE 小提琴採樣為 CC0 1.0。

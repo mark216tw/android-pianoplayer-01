@@ -6,11 +6,12 @@ final class TimbreBalance {
     private static final double[][] DB = {
         {0, 0, 0, 0, 0},
         {6.786, 6.499, 12.536, 14.591, 7.068},
-        {-0.422, -8.871, -8.845, -16.222, -17.085}
+        {-0.422, -8.871, -8.845, -16.222, -17.085},
+        {0, 0, 0, 0, 0}
     };
     private static final double[][] GAINS = createGains();
     private static double[][] createGains() {
-        double[][] gains = new double[3][128];
+        double[][] gains = new double[4][128];
         for (int sound = 0; sound < gains.length; sound++) {
             for (int pitch = 0; pitch < 128; pitch++) {
                 int region = 0;
@@ -23,7 +24,10 @@ final class TimbreBalance {
         return gains;
     }
     static void prepare() { /* Initializes the lookup on the creating/UI thread. */ }
-    static double gain(int sound, int pitch) { return GAINS[sound][Math.max(0, Math.min(127, pitch))]; }
+    static double gain(int sound, int pitch) {
+        int index = sound >= 0 && sound < GAINS.length ? sound : 0;
+        return GAINS[index][Math.max(0, Math.min(127, pitch))];
+    }
     static double strength(int velocity) { return Math.pow(Math.max(0, Math.min(127, velocity)) / 127.0, .85); }
     static double voiceLevel(int selectedSound, boolean sampled, int pitch, int velocity) {
         int actualSound = sampled ? selectedSound : PianoSound.SYNTHETIC;

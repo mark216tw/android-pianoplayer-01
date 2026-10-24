@@ -55,11 +55,14 @@ final class PianoAudio implements AutoCloseable {
     private double cursor, speed = 1;
     private int sound = PianoSound.SALAMANDER;
     private volatile int selectedSound = PianoSound.SALAMANDER;
+    private volatile int[] requiredSounds;
+    private boolean lowStringEnabled = true;
+    private double violinLevel = .75;
     private double volume = 1, targetVolume = 1;
     private static final class Voice {
-        boolean active, held, sampled; int id, pitch, velocity, age, part, channel;
+        boolean active, held, sampled, sustainPedal = true; int id, pitch, velocity, age, part, channel;
         long started;
-        double phase, level, decay, hammer, release = 1, resumeFade = 1;
+        double phase, level, decay, hammer, release = 1, resumeFade = 1, sampledRelease;
         final SampleVoice sampleVoice = new SampleVoice();
     }
     PianoAudio(Context context) {
@@ -86,16 +89,29 @@ final class PianoAudio implements AutoCloseable {
         double level = 1;
         boolean reverbEnabled = UiTheme.preferences(context).getBoolean("pianoReverb", false);
         double reverbLevel = Math.max(0, Math.min(60, UiTheme.preferences(context).getInt("pianoReverbMix", 18))) / 100.0;
+        boolean lowStrings = UiTheme.preferences(context).getBoolean("stringLowViolin", true);
+        double violinVolume = Math.max(0, Math.min(100, UiTheme.preferences(context).getInt("violinVolume", 75))) / 100.0;
         selectedSound = selection;
-        SampleBankStore.start(context, selection);
+        if (selection == PianoSound.AUTO) {
+            int[] sounds = requiredSounds;
+            SampleBankStore.start(context, sounds == null ? new int[0] : sounds);
+        } else {
+            SampleBankStore.start(context, selection);
+        }
         commands.add(() -> {
             if (sound != selection) { clear(); limiter.reset(); reverb.clear(); }
-            sound = selection; targetVolume = level; reverb.configure(reverbEnabled, reverbLevel);
+            sound = selection; targetVolume = level; lowStringEnabled = lowStrings; violinLevel = violinVolume; reverb.configure(reverbEnabled, reverbLevel);
         });
     }
     String soundStatus() {
         int selected = selectedSound;
         if (selected == PianoSound.SYNTHETIC) return PianoSound.name(selected);
+        if (selected == PianoSound.AUTO) {
+            String status = SampleBankStore.status();
+            boolean ready = status.startsWith("已載入");
+            boolean fallback = status.startsWith("載入中") || status.startsWith("載入逾時");
+            return PianoSound.name(selected) + " · " + status + (ready || !fallback ? "" : " · 暫用合成");
+        }
         String status = SampleBankStore.status(selected);
         return PianoSound.name(selected) + (SampleBankStore.bank(selected) != null ? "" : " · " + status + (status.startsWith("載入失敗") ? "" : " · 暫用合成"));
     }
@@ -107,6 +123,8 @@ final class PianoAudio implements AutoCloseable {
     void load(PlaybackProgram compiled) {
         PlaybackClock newClock = new PlaybackClock(compiled, rate); newClock.speed(speed);
         boolean[] newMuted = compiled.initialMuted.clone(), pedals = new boolean[compiled.parts.size()]; long[] starts = new long[compiled.parts.size()];
+        requiredSounds = compiled.requiredSounds.clone();
+        if (selectedSound == PianoSound.AUTO) SampleBankStore.start(context, requiredSounds);
         commands.add(() -> {
             playing = false; clear(); limiter.reset(); reverb.clear(); program = compiled; clock = newClock; clock.speed(speed); score = compiled.score; scoreLength = score.length();
             muted = newMuted; partPedals = pedals; pedalStarts = starts; cursor = position = 0; nextEvent = 0;
@@ -149,14 +167,19 @@ final class PianoAudio implements AutoCloseable {
     }
     private void restoreNotes(int channel) {
         cursor = clock.tick();
-        for (int id = 0; id < score.notes.size(); id++) {
+        double fromSeconds = Math.max(0, clock.seconds() - 120);
+        long fromTick = (long) Math.floor(program.timeline.tick(fromSeconds));
+        for (int id = firstNoteIndex(fromTick); id < score.notes.size(); id++) {
             Score.Note n = score.notes.get(id);
             if (n.start > cursor) break;
-            double seconds = clock.age(id);
             int noteChannel = program.noteChannels[id], part = program.noteParts[id];
             if (muted[noteChannel] || (channel >= 0 && noteChannel != channel)) continue;
             boolean held = n.end() > cursor;
-            if (!held && !(partPedals[part] && n.end() > pedalStarts[part])) continue;
+            if (!held && !partPedals[part]) continue;
+            SampleBank bank = bankForNote(id);
+            boolean sustainPedal = bank == null || bank.sustainPedal();
+            if (!held && !(sustainPedal && n.end() > pedalStarts[part])) continue;
+            double seconds = clock.age(id);
             if (seconds > 30) continue;
             noteOn(id, n.pitch, n.velocity, seconds < 1.0 / rate);
             for (Voice v : voices) if (v.active && v.id == id && v.held) {
@@ -170,6 +193,14 @@ final class PianoAudio implements AutoCloseable {
                 v.held = held;
             }
         }
+    }
+    private int firstNoteIndex(long tick) {
+        int low = 0, high = score.notes.size();
+        while (low < high) {
+            int mid = (low + high) >>> 1;
+            if (score.notes.get(mid).start < tick) low = mid + 1; else high = mid;
+        }
+        return low;
     }
     private void dispatch(PlaybackProgram.Event e) {
         if (e.type == PlaybackProgram.NOTE_ON) {
@@ -187,6 +218,31 @@ final class PianoAudio implements AutoCloseable {
         return pitch < 64 ? (keysLow & (1L << pitch)) != 0 : (keysHigh & (1L << (pitch - 64))) != 0;
     }
     long attackTime(int pitch) { return keyAttackTimes.get(pitch); }
+    private SampleBank bankForNote(int id) {
+        int noteSound = sound;
+        if (sound == PianoSound.AUTO) {
+            if (program == null || id < 0 || id >= program.noteSounds.length) return null;
+            noteSound = program.noteSounds[id];
+        }
+        if (noteSound == PianoSound.SYNTHETIC) return null;
+        if (noteSound == PianoSound.SALAMANDER) return SampleBankStore.bank(PianoSound.SALAMANDER);
+        SampleBank primary = SampleBankStore.bank(PianoSound.VIOLIN);
+        if (primary == null || score == null || id < 0 || id >= score.notes.size()) return primary;
+        Score.Note note = score.notes.get(id);
+        double duration = score.seconds(note.end()) - score.seconds(note.start);
+        boolean allowLowString = lowStringEnabled && program != null && id >= 0 && id < program.noteLowStrings.length && program.noteLowStrings[id];
+        int route = ViolinRouting.route(note.pitch, duration, allowLowString);
+        if (route == ViolinRouting.LOW_PIANO) {
+            SampleBank piano = SampleBankStore.bank(PianoSound.SALAMANDER);
+            if (piano != null) return piano;
+            SampleBank low = SampleBankStore.fallbackBank(PianoSound.VIOLIN);
+            if (low != null && note.pitch >= low.coverageLow() && note.pitch <= low.coverageHigh()) return low;
+        } else if (route == ViolinRouting.SPIC) {
+            SampleBank spic = SampleBankStore.spicBank(PianoSound.VIOLIN);
+            if (spic != null && note.pitch >= spic.coverageLow() && note.pitch <= spic.coverageHigh()) return spic;
+        }
+        return primary;
+    }
     private void noteOn(int id, int pitch, int velocity) { noteOn(id, pitch, velocity, true); }
     private void noteOn(int id, int pitch, int velocity, boolean attack) {
         if (pitch < 21 || pitch > 108) return;
@@ -196,18 +252,26 @@ final class PianoAudio implements AutoCloseable {
         Voice chosen = allocate();
         chosen.active = chosen.held = true; chosen.id = id; chosen.pitch = pitch; chosen.velocity = velocity; chosen.started = renderedFrames;
         chosen.part = program.noteParts[id]; chosen.channel = program.noteChannels[id];
-        SampleBank bank = sound == PianoSound.SYNTHETIC ? null : SampleBankStore.bank(sound);
+        SampleBank bank = bankForNote(id);
+        chosen.sampledRelease = bank == null ? 0 : bank.releaseSeconds();
+        chosen.sustainPedal = bank == null || bank.sustainPedal();
         SampleBank.Selection selection = bank == null ? null : bank.select(pitch, velocity);
         PianoSample first = selection == null ? null : bank.sample(pitch, selection.first);
         PianoSample second = selection == null || selection.second < 0 ? null : bank.sample(pitch, selection.second);
         chosen.sampled = first != null || second != null;
-        if (chosen.sampled) chosen.sampleVoice.start(first, second, selection.mix, selection.firstGain, selection.secondGain, pitch, rate);
-        else chosen.sampleVoice.clear();
+        if (chosen.sampled) {
+            chosen.sampleVoice.start(first, second, selection.mix, selection.firstGain, selection.secondGain, pitch, rate);
+            double tone = bank.toneHz(pitch);
+            if (tone > 0) chosen.sampleVoice.tone(tone, rate);
+        } else chosen.sampleVoice.clear();
         chosen.phase = 0; chosen.age = 0; chosen.release = 1;
         chosen.resumeFade = 1;
-        chosen.level = chosen.sampled
-            ? TimbreBalance.strength(velocity) * .5 * (bank.calibrated() ? 1 : TimbreBalance.gain(sound, pitch))
-            : TimbreBalance.voiceLevel(sound, false, pitch, velocity);
+        int playedSound = sound;
+        if (sound == PianoSound.AUTO && program != null && id >= 0 && id < program.noteSounds.length) playedSound = program.noteSounds[id];
+        double instrumentLevel = playedSound == PianoSound.VIOLIN ? violinLevel : 1;
+        chosen.level = (chosen.sampled
+            ? TimbreBalance.strength(velocity) * .5 * (bank == null ? 1 : bank.outputGain()) * (bank.calibrated() ? 1 : TimbreBalance.gain(sound, pitch))
+            : TimbreBalance.voiceLevel(sound, false, pitch, velocity)) * instrumentLevel;
         chosen.hammer = 1;
         chosen.decay = Math.exp(-1.0 / (rate * (1.4 + (108 - pitch) * .025)));
     }
@@ -237,7 +301,7 @@ final class PianoAudio implements AutoCloseable {
         return result;
     }
     private boolean pedaled(Voice voice) {
-        return voice.part < partPedals.length && partPedals[voice.part];
+        return voice.sustainPedal && voice.part < partPedals.length && partPedals[voice.part];
     }
     private void noteOff(int id) {
         for (Voice v : voices) if (v.active && v.id == id && v.held) {
@@ -246,7 +310,8 @@ final class PianoAudio implements AutoCloseable {
         }
     }
     private void release(Voice voice, boolean fast) {
-        release(voice, fast ? .025 : Damper.releaseSeconds(voice.pitch));
+        double seconds = voice.sampled && voice.sampledRelease > 0 ? voice.sampledRelease : Damper.releaseSeconds(voice.pitch);
+        release(voice, fast ? Math.min(.025, seconds) : seconds);
     }
     private void release(Voice voice, double seconds) {
         if (voice.sampled) voice.sampleVoice.release(seconds);

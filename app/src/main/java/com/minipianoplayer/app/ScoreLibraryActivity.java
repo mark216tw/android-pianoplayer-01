@@ -5,6 +5,7 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.content.res.ColorStateList;
 import android.graphics.Typeface;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -20,6 +21,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -31,6 +33,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class ScoreLibraryActivity extends Activity {
+    private static final int IMPORT = 1;
     private static final String[] SORT_NAMES = {"最近加入", "名稱", "演奏時間"};
     private final ExecutorService files = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -68,7 +71,7 @@ public final class ScoreLibraryActivity extends Activity {
         TextView title = text("音譜庫", 23, theme.text); title.setTypeface(null, Typeface.BOLD); title.setPadding(dp(8), 0, 0, 0);
         header.addView(title);
         View spacer = new View(this); header.addView(spacer, new LinearLayout.LayoutParams(0, 1, 1));
-        header.addView(iconButton(R.drawable.ic_add, "匯入音譜", this::requestImport), new LinearLayout.LayoutParams(dp(44), dp(44)));
+        header.addView(iconButton(R.drawable.ic_add, "匯入音譜", this::pickImport), new LinearLayout.LayoutParams(dp(44), dp(44)));
         root.addView(header, new LinearLayout.LayoutParams(-1, dp(56)));
         search = new EditText(this);
         search.setSingleLine(true);
@@ -135,7 +138,36 @@ public final class ScoreLibraryActivity extends Activity {
         button.setBackground(UiTheme.rounded(UiTheme.blend(theme.surface, theme.primary, .14f), dp(10)));
         button.setOnClickListener(v -> action.run()); return button;
     }
-    private void requestImport() { setResult(RESULT_OK, new Intent().putExtra("import", true)); finish(); }
+    private void pickImport() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.setType("*/*");
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
+            "application/vnd.recordare.musicxml+xml", "application/vnd.recordare.musicxml", "application/xml", "text/xml",
+            "application/zip", "application/json", "text/plain", "application/octet-stream"
+        });
+        startActivityForResult(intent, IMPORT);
+    }
+    private void importScore(Uri uri) {
+        final Score[] imported = new Score[1];
+        perform(() -> {
+            try (InputStream input = getContentResolver().openInputStream(uri)) {
+                if (input == null) throw new java.io.IOException("無法開啟檔案");
+                imported[0] = ScoreImport.read(input);
+                if (imported[0].notes.isEmpty()) throw new java.io.IOException("此樂譜沒有可播放的音符");
+                String previous = library.selected();
+                library.add(imported[0], "匯入");
+                if (previous != null) library.select(previous);
+            }
+        }, () -> {
+            refresh();
+            if (imported[0] != null) dialog().setTitle("匯入摘要").setMessage(imported[0].importSummary()).setPositiveButton("知道了", null).show();
+        });
+    }
+    @Override protected void onActivityResult(int request, int result, Intent data) {
+        super.onActivityResult(request, result, data);
+        if (request == IMPORT && result == RESULT_OK && data != null && data.getData() != null) importScore(data.getData());
+    }
     private AlertDialog.Builder dialog() {
         return new AlertDialog.Builder(new ContextThemeWrapper(this, theme.dark ? R.style.AppTheme_Dark : R.style.AppTheme));
     }
@@ -176,7 +208,7 @@ public final class ScoreLibraryActivity extends Activity {
         List<ScoreLibrary.Entry> shown = filterAndSort(entries, query, sortMode);
         count.setText(shown.size() + " 首樂曲");
         if (shown.isEmpty()) {
-            TextView empty = text(entries.isEmpty() ? "尚無樂譜。按右上角 + 匯入 MusicXML／MIDI。" : "找不到符合的樂曲", 15, theme.muted);
+            TextView empty = text(entries.isEmpty() ? "尚無樂譜。按右上角 + 匯入 MusicXML。" : "找不到符合的樂曲", 15, theme.muted);
             empty.setGravity(Gravity.CENTER);
             empty.setPadding(0, dp(28), 0, dp(28)); body.addView(empty);
             return;
@@ -187,8 +219,23 @@ public final class ScoreLibraryActivity extends Activity {
             card.setBackground(UiTheme.rounded(theme.surface, dp(16)));
             TextView title = text(entry.title, 17, theme.text); title.setTypeface(null, Typeface.BOLD);
             title.setSingleLine(true); title.setEllipsize(android.text.TextUtils.TruncateAt.END); card.addView(title);
+            LinearLayout summaryRow = new LinearLayout(this); summaryRow.setGravity(Gravity.CENTER_VERTICAL);
+            TextView composer = text(entry.composer == null ? "" : entry.composer.trim(), 12, theme.muted);
+            composer.setSingleLine(true); composer.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            summaryRow.addView(composer, new LinearLayout.LayoutParams(0, -1, 1));
             TextView duration = text(formatDuration(entry.seconds), 12, theme.muted);
-            duration.setPadding(0, dp(3), 0, dp(8)); card.addView(duration);
+            summaryRow.addView(duration);
+            summaryRow.setPadding(0, dp(3), 0, 0);
+            card.addView(summaryRow);
+            String instruments = entry.instruments == null ? "" : entry.instruments.trim();
+            if (!instruments.isEmpty()) {
+                TextView instrumentView = text(instruments, 12, theme.muted);
+                instrumentView.setSingleLine(true); instrumentView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                instrumentView.setPadding(0, dp(2), 0, dp(8));
+                card.addView(instrumentView);
+            } else {
+                summaryRow.setPadding(0, dp(3), 0, dp(8));
+            }
             LinearLayout actions = new LinearLayout(this); actions.setGravity(Gravity.CENTER_VERTICAL);
             Button play = cardButton("▶ 播放", theme.text, () -> play(entry));
             play.setTag("play_" + entry.id);
@@ -232,7 +279,7 @@ public final class ScoreLibraryActivity extends Activity {
         return result;
     }
     private void play(ScoreLibrary.Entry entry) {
-        if (playback == null) return;
+        if (playback == null || busy) return;
         if (entry.id.equals(playback.id)) {
             if (playback.audio.playing) playback.pause(); else playback.play();
             updatePlayButtons();
@@ -242,10 +289,28 @@ public final class ScoreLibraryActivity extends Activity {
         perform(() -> { loaded[0] = library.load(entry.id); compiled[0] = new PlaybackProgram(loaded[0]); }, () -> {
             if (playback == null) return;
             library.select(entry.id);
-            playback.load(entry.id, loaded[0], compiled[0]);
-            playback.play();
-            updatePlayButtons();
+            playback.pause();
+            busy = true;
+            int selected = PianoSound.selected(this);
+            if (selected == PianoSound.AUTO) SampleBankStore.start(this, compiled[0].requiredSounds);
+            else if (selected != PianoSound.SYNTHETIC) SampleBankStore.start(this, selected);
+            if (!SampleBankStore.ready(this, compiled[0].requiredSounds)) Toast.makeText(this, "音色載入中…", Toast.LENGTH_SHORT).show();
+            handler.postDelayed(() -> {
+                if (isDestroyed() || playback == null) { busy = false; return; }
+                playback.load(entry.id, loaded[0], compiled[0]);
+                waitForBanks(compiled[0].requiredSounds, 0, () -> {
+                    if (isDestroyed() || playback == null) { busy = false; return; }
+                    playback.play();
+                    busy = false;
+                    updatePlayButtons();
+                });
+            }, 80);
         });
+    }
+    private void waitForBanks(int[] requiredSounds, int attempts, Runnable action) {
+        if (isDestroyed() || playback == null) return;
+        if (SampleBankStore.ready(this, requiredSounds) || attempts >= 60) { action.run(); return; }
+        handler.postDelayed(() -> waitForBanks(requiredSounds, attempts + 1, action), 50);
     }
     private void delete(ScoreLibrary.Entry entry) {
         dialog().setTitle("刪除樂譜？").setMessage("要刪除「" + entry.title + "」嗎？刪除後無法復原。")
@@ -268,7 +333,7 @@ public final class ScoreLibraryActivity extends Activity {
         super.onPause();
     }
     @Override protected void onDestroy() {
-        handler.removeCallbacks(playbackRefresh);
+        handler.removeCallbacksAndMessages(null);
         files.shutdown();
         if (playback != null) playback.release();
         super.onDestroy();

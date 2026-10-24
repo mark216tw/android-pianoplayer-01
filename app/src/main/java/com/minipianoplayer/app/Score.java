@@ -12,6 +12,7 @@ import java.util.LinkedHashSet;
 public final class Score {
     public static final int PPQ = 480;
     public String title = "未命名樂曲";
+    public String composer = "";
     public int bpm = 120, beats = 4, beatType = 4;
     public final List<Note> notes = new ArrayList<>();
     public final List<Pedal> pedals = new ArrayList<>();
@@ -19,6 +20,9 @@ public final class Score {
     public final List<Tempo> tempos = new ArrayList<>();
     public final List<Measure> measures = new ArrayList<>();
     public final Map<String, String> partNames = new LinkedHashMap<>();
+    public final Map<String, Integer> partSounds = new LinkedHashMap<>();
+    public final Map<String, String> partInstruments = new LinkedHashMap<>();
+    public final Set<String> lowStringParts = new LinkedHashSet<>();
     public final Set<String> mutedVoices = new LinkedHashSet<>();
     public final Set<String> features = new LinkedHashSet<>();
     public String originalXml;
@@ -107,14 +111,28 @@ public final class Score {
     public double seconds(long tick) { return tempos.isEmpty() ? tick * 60.0 / (bpm * PPQ) : timeline().seconds(tick); }
     public long tick(double seconds) { return Math.round(tempos.isEmpty() ? seconds * bpm * PPQ / 60.0 : timeline().tick(seconds)); }
     public Score copy() {
-        Score result = new Score(); result.title = title; result.bpm = bpm; result.beats = beats; result.beatType = beatType;
+        Score result = new Score(); result.title = title; result.composer = composer; result.bpm = bpm; result.beats = beats; result.beatType = beatType;
         result.notes.addAll(notes); result.pedals.addAll(pedals); result.tempos.addAll(tempos); result.measures.addAll(measures);
-        result.partNames.putAll(partNames); result.mutedVoices.addAll(mutedVoices); result.features.addAll(features); result.warnings.addAll(warnings);
+        result.partNames.putAll(partNames); result.partSounds.putAll(partSounds); result.partInstruments.putAll(partInstruments);
+        result.lowStringParts.addAll(lowStringParts);
+        result.mutedVoices.addAll(mutedVoices); result.features.addAll(features); result.warnings.addAll(warnings);
         result.originalXml = originalXml; result.endTick = endTick; result.originalMeasureCount = originalMeasureCount; result.sort(); return result;
     }
+    public String instrumentSummary() {
+        LinkedHashSet<String> names = new LinkedHashSet<>();
+        for (String name : partInstruments.values()) if (name != null && !name.isEmpty()) names.add(name);
+        return String.join("、", names);
+    }
     public String importSummary() {
+        StringBuilder instruments = new StringBuilder();
+        for (Map.Entry<String, Integer> entry : partSounds.entrySet()) {
+            if (instruments.length() > 0) instruments.append("、");
+            instruments.append(partNames.getOrDefault(entry.getKey(), entry.getKey()))
+                .append(" → ").append(partInstruments.getOrDefault(entry.getKey(), PianoSound.name(entry.getValue())));
+        }
         return title + "\n" + notes.size() + " 個音符 · " + channels().size() + " 個聲部\n"
             + (tempos.isEmpty() ? 1 : timeline().size()) + " 個速度段 · " + measures.size() + " 個小節（原譜 " + originalMeasureCount + "）\n"
+            + (instruments.length() == 0 ? "" : "音色：" + instruments + "\n")
             + (features.isEmpty() ? "基本音符、和弦與休止符" : "已處理：" + String.join("、", features))
             + (warnings.isEmpty() ? "" : "\n\n提醒：\n" + String.join("\n", warnings));
     }

@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -59,8 +60,19 @@ final class MusicXmlReader {
         if (!root.getTagName().equals("score-partwise")) throw new IOException("目前支援 score-partwise MusicXML");
         Score score = new Score(); score.originalXml = original;
         score.title = text(child(root, "work"), "work-title", text(root, "movement-title", "匯入樂曲"));
+        score.composer = composer(root);
         Element partList = child(root, "part-list");
-        for (Element part : children(partList, "score-part")) score.partNames.put(part.getAttribute("id"), text(part, "part-name", part.getAttribute("id")));
+        for (Element part : children(partList, "score-part")) {
+            String id = part.getAttribute("id");
+            String name = text(part, "part-name", id);
+            InstrumentDetector.Result detected = InstrumentDetector.detect(name, text(part, "part-abbreviation", ""),
+                instrumentNames(part), midiProgram(part));
+            score.partNames.put(id, name);
+            score.partSounds.put(id, detected.sound);
+            score.partInstruments.put(id, detected.label);
+            if (detected.lowString) score.lowStringParts.add(id);
+            if (!detected.recognized && !name.isEmpty()) warn(score, "聲部「" + name + "」無法辨識樂器，改用鋼琴");
+        }
         List<Element> elements = children(root, "part");
         int count = 0; for (Element part : elements) count = Math.max(count, children(part, "measure").size());
         if (count == 0 || count > 10000) throw new IOException("樂譜小節數量無效");
@@ -72,6 +84,12 @@ final class MusicXmlReader {
             String id = element.getAttribute("id"); if (id.isEmpty()) id = "P" + (parts.size() + 1);
             for (Part previous : parts) if (previous.id.equals(id)) throw new IOException("重複的 part ID：" + id);
             Part part = new Part(id); parts.add(part); score.partNames.putIfAbsent(id, id);
+            if (!score.partSounds.containsKey(id)) {
+                InstrumentDetector.Result detected = InstrumentDetector.detect(score.partNames.get(id), "", java.util.Collections.emptyList(), null);
+                score.partSounds.put(id, detected.sound);
+                score.partInstruments.put(id, detected.label);
+                if (detected.lowString) score.lowStringParts.add(id);
+            }
             int divisions = 1, beats = 4, beatType = 4, transpose = 0;
             Map<Integer, Integer> staffTransposes = new HashMap<>();
             List<Element> measures = children(element, "measure");
@@ -221,6 +239,13 @@ final class MusicXmlReader {
         score.endTick = output;
         if (!ties.isEmpty()) warn(score, "部分延音線缺少對應終點");
         if (score.notes.isEmpty()) throw new IOException("樂譜中沒有可播放的鋼琴音符");
+        boolean piano = false, violin = false;
+        for (int sound : score.partSounds.values()) {
+            if (sound == PianoSound.SALAMANDER) piano = true;
+            if (sound == PianoSound.VIOLIN) violin = true;
+        }
+        if (piano && violin) score.features.add("自動音色");
+        if (!score.lowStringParts.isEmpty()) score.features.add("弦樂低音移調");
         score.sort();
         if (score.seconds(score.length()) > 7200) throw new IOException("演奏長度超過兩小時，請檢查反覆與速度");
         return score;
@@ -367,6 +392,35 @@ final class MusicXmlReader {
     private static void locate(Point point, long[] starts) { point.tick = Math.max(0, starts[point.measure] + point.local); }
     private static double duration(Element element, int divisions) throws IOException {
         double value = decimal(text(element, "duration", "0"), 0); if (!Double.isFinite(value) || value < 0) throw new IOException("無效的音符 duration"); return value * Score.PPQ / divisions;
+    }
+    private static List<String> instrumentNames(Element scorePart) {
+        List<String> result = new ArrayList<>();
+        for (Element instrument : children(scorePart, "score-instrument")) {
+            String name = text(instrument, "instrument-name", "");
+            if (!name.isEmpty()) result.add(name);
+        }
+        return result;
+    }
+    private static Integer midiProgram(Element scorePart) {
+        for (Element instrument : children(scorePart, "midi-instrument")) {
+            String value = text(instrument, "midi-program", "");
+            if (!value.isEmpty()) {
+                try { return Integer.parseInt(value); } catch (NumberFormatException ignored) {}
+            }
+        }
+        return null;
+    }
+    static String composer(Element root) {
+        Element identification = child(root, "identification");
+        if (identification == null) return "";
+        LinkedHashSet<String> names = new LinkedHashSet<>();
+        for (Element creator : children(identification, "creator")) {
+            if ("composer".equalsIgnoreCase(creator.getAttribute("type"))) {
+                String name = creator.getTextContent().trim();
+                if (!name.isEmpty()) names.add(name);
+            }
+        }
+        return String.join("、", names);
     }
     private static void warn(Score score, String message) { if (!score.warnings.contains(message)) score.warnings.add(message); }
     private static int integer(String text, int fallback) { try { return Integer.parseInt(text); } catch (Exception e) { return fallback; } }

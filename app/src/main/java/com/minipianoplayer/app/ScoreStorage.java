@@ -17,9 +17,9 @@ final class ScoreStorage {
         synchronized (IO_LOCK) { saveLocked(score); }
     }
     private void saveLocked(Score score) throws Exception {
-        JSONObject root = new JSONObject(); root.put("title", score.title); root.put("bpm", score.bpm);
+        JSONObject root = new JSONObject(); root.put("title", score.title); root.put("composer", score.composer); root.put("bpm", score.bpm);
         root.put("beats", score.beats); root.put("beatType", score.beatType);
-        root.put("schemaVersion", 2); root.put("endTick", score.endTick); root.put("originalMeasureCount", score.originalMeasureCount);
+        root.put("schemaVersion", 4); root.put("endTick", score.endTick); root.put("originalMeasureCount", score.originalMeasureCount);
         if (score.originalXml != null) root.put("originalXml", score.originalXml);
         JSONArray notes = new JSONArray(), pedals = new JSONArray();
         for (Score.Note n : score.notes) notes.put(new JSONArray().put(n.pitch).put(n.start).put(n.duration).put(n.velocity).put(n.part).put(n.voice).put(n.staff).put(n.staffMask));
@@ -29,6 +29,8 @@ final class ScoreStorage {
         for (Score.Tempo tempo : score.tempos) tempos.put(new JSONArray().put(tempo.tick).put(tempo.bpm));
         for (Score.Measure measure : score.measures) measures.put(new JSONArray().put(measure.tick).put(measure.duration).put(measure.number).put(measure.visit));
         root.put("tempos", tempos); root.put("measures", measures); root.put("partNames", new JSONObject(score.partNames));
+        root.put("partSounds", new JSONObject(score.partSounds)); root.put("partInstruments", new JSONObject(score.partInstruments));
+        root.put("lowStringParts", new JSONArray(score.lowStringParts));
         root.put("mutedVoices", new JSONArray(score.mutedVoices)); root.put("features", new JSONArray(score.features)); root.put("warnings", new JSONArray(score.warnings));
         FileOutputStream output = file.startWrite();
         try { output.write(root.toString().getBytes(StandardCharsets.UTF_8)); file.finishWrite(output); }
@@ -40,7 +42,7 @@ final class ScoreStorage {
     private Score loadLocked() throws Exception {
         if (!file.getBaseFile().exists()) return null;
         JSONObject root = new JSONObject(new String(file.readFully(), StandardCharsets.UTF_8));
-        Score score = new Score(); score.title = root.getString("title"); score.bpm = root.getInt("bpm");
+        Score score = new Score(); score.title = root.getString("title"); score.composer = root.optString("composer", ""); score.bpm = root.getInt("bpm");
         score.beats = root.getInt("beats"); score.beatType = root.getInt("beatType");
         JSONArray notes = root.getJSONArray("notes"), pedals = root.getJSONArray("pedals");
         for (int i = 0; i < notes.length(); i++) {
@@ -56,6 +58,26 @@ final class ScoreStorage {
         if (measures != null) for (int i = 0; i < measures.length(); i++) { JSONArray m = measures.getJSONArray(i); score.measures.add(new Score.Measure(m.getLong(0), m.getLong(1), m.getString(2), m.getInt(3))); }
         JSONObject names = root.optJSONObject("partNames");
         if (names != null) for (java.util.Iterator<String> it = names.keys(); it.hasNext();) { String key = it.next(); score.partNames.put(key, names.getString(key)); }
+        JSONObject sounds = root.optJSONObject("partSounds"), instruments = root.optJSONObject("partInstruments");
+        if (sounds != null) for (java.util.Iterator<String> it = sounds.keys(); it.hasNext();) { String key = it.next(); score.partSounds.put(key, sounds.getInt(key)); }
+        if (instruments != null) for (java.util.Iterator<String> it = instruments.keys(); it.hasNext();) { String key = it.next(); score.partInstruments.put(key, instruments.getString(key)); }
+        JSONArray lowString = root.optJSONArray("lowStringParts");
+        if (lowString != null) for (int i = 0; i < lowString.length(); i++) score.lowStringParts.add(lowString.getString(i));
+        for (java.util.Map.Entry<String, String> entry : score.partNames.entrySet()) {
+            String id = entry.getKey(), label = score.partInstruments.get(id);
+            if (!score.partSounds.containsKey(id) || label == null || label.contains("未辨識")) {
+                InstrumentDetector.Result detected = InstrumentDetector.detect(entry.getValue(), "", java.util.Collections.emptyList(), null);
+                score.partSounds.put(id, detected.sound);
+                score.partInstruments.put(id, detected.label);
+                if (detected.lowString) score.lowStringParts.add(id);
+            } else if (label.equals("中提琴") || label.equals("大提琴") || label.equals("低音提琴")) {
+                score.lowStringParts.add(id);
+            }
+        }
+        for (java.util.Map.Entry<String, Integer> entry : score.partSounds.entrySet()) {
+            score.partInstruments.putIfAbsent(entry.getKey(), PianoSound.name(entry.getValue()));
+        }
+        if (!score.lowStringParts.isEmpty()) score.features.add("弦樂低音移調");
         JSONArray muted = root.optJSONArray("mutedVoices"), features = root.optJSONArray("features"), warnings = root.optJSONArray("warnings");
         if (muted != null) for (int i = 0; i < muted.length(); i++) score.mutedVoices.add(muted.getString(i));
         if (features != null) for (int i = 0; i < features.length(); i++) score.features.add(features.getString(i));

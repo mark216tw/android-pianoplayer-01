@@ -1,7 +1,11 @@
 package com.minipianoplayer.app;
 
 import android.content.Context;
+import org.json.JSONObject;
 import org.junit.Test;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.nio.charset.StandardCharsets;
 import org.junit.runner.RunWith;
 import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
@@ -25,6 +29,23 @@ public class ScoreLibraryTest {
         assertEquals(b, reopened.selected());
         reopened.delete(b); assertNull(reopened.selected());
         assertEquals(1, reopened.list().size()); assertEquals(first.notes.size(), reopened.load(a).notes.size());
+    }
+    @Test public void metadataIncludesComposerInstrumentsAndBackfillsOldEntries() throws Exception {
+        Context context = RuntimeEnvironment.getApplication(); ScoreLibrary library = new ScoreLibrary(context);
+        Score score = TestScores.simple(); score.title = "測試曲"; score.composer = "Antonio Vivaldi";
+        score.partInstruments.put("P1", "鋼琴");
+        String id = library.add(score, "匯入");
+        ScoreLibrary.Entry entry = library.list().stream().filter(item -> id.equals(item.id)).findFirst().orElseThrow();
+        assertEquals("Antonio Vivaldi", entry.composer);
+        assertEquals("鋼琴", entry.instruments);
+        JSONObject old = new JSONObject().put("title", score.title).put("source", "匯入")
+            .put("created", System.currentTimeMillis()).put("updated", System.currentTimeMillis()).put("seconds", score.seconds(score.length()));
+        try (FileOutputStream output = new FileOutputStream(new File(new File(context.getFilesDir(), "scores"), id + ".meta"))) {
+            output.write(old.toString().getBytes(StandardCharsets.UTF_8));
+        }
+        ScoreLibrary.Entry backfilled = library.list().stream().filter(item -> id.equals(item.id)).findFirst().orElseThrow();
+        assertEquals("Antonio Vivaldi", backfilled.composer);
+        assertEquals("鋼琴", backfilled.instruments);
     }
     @Test public void migrationIsRepeatableAndRetainsOriginal() throws Exception {
         Context context = RuntimeEnvironment.getApplication(); Score old = TestScores.simple(); old.title = "舊演奏";

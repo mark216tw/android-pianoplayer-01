@@ -1,6 +1,7 @@
 package com.minipianoplayer.app;
 
 import android.content.Intent;
+import java.io.ByteArrayInputStream;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
@@ -13,9 +14,9 @@ import static org.junit.Assert.*;
 @Config(sdk = 29)
 public class ImportPolicyTest {
     @Test public void pickerOffersMusicXmlMxlAndJsonWrappers() throws Exception {
-        try (var controller = Robolectric.buildActivity(MainActivity.class).setup()) {
-            MainActivity activity = controller.get();
-            var method = MainActivity.class.getDeclaredMethod("importScore");
+        try (var controller = Robolectric.buildActivity(ScoreLibraryActivity.class).setup()) {
+            ScoreLibraryActivity activity = controller.get();
+            var method = ScoreLibraryActivity.class.getDeclaredMethod("pickImport");
             method.setAccessible(true);
             method.invoke(activity);
             Intent intent = Shadows.shadowOf(activity).getNextStartedActivity();
@@ -27,8 +28,17 @@ public class ImportPolicyTest {
             assertTrue(java.util.Arrays.asList(types).contains("application/xml"));
             assertTrue(java.util.Arrays.asList(types).contains("application/zip"));
             assertTrue(java.util.Arrays.asList(types).contains("application/json"));
-            assertTrue(java.util.Arrays.asList(types).contains("audio/midi"));
-            assertTrue(java.util.Arrays.asList(types).contains("audio/x-midi"));
+            assertFalse(java.util.Arrays.asList(types).contains("audio/midi"));
+            assertFalse(java.util.Arrays.asList(types).contains("audio/x-midi"));
+        }
+    }
+    @Test public void midiFilesAreRejected() {
+        byte[] midi = {'M', 'T', 'h', 'd', 0, 0, 0, 6, 0, 0, 0, 1, 0, 96};
+        try {
+            ScoreImport.read(new ByteArrayInputStream(midi));
+            fail("Expected MIDI rejection");
+        } catch (Exception expected) {
+            assertTrue(expected.getMessage().contains("MIDI"));
         }
     }
 }

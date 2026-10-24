@@ -31,7 +31,8 @@ final class PianoView extends View {
     static { for (int i = 0; i < NOTE_NAMES.length; i++) NOTE_NAMES[i] = createNoteName(i); }
     private int base = 48, topWhite = 88, whites = 24;
     private int[] noteChannel = new int[0], noteStaff = new int[0];
-    private double[] noteStart = new double[0], noteEnd = new double[0], measureSeconds = new double[0];
+    private double[] noteStart = new double[0], noteEnd = new double[0], noteMaxEnd = new double[0], measureSeconds = new double[0];
+    private int[] channelColors = new int[0];
     private String[] measureLabels = new String[0];
     private String rangeLabelText = "";
     private Score score;
@@ -71,6 +72,7 @@ final class PianoView extends View {
         keyboardBackground = dark ? 0xFF0B1217 : 0xFF1E3038;
         whiteColor = dark ? 0xFFD3DFDD : 0xFFFFFDF5;
         blackColor = dark ? 0xFF101A22 : 0xFF22343C;
+        rebuildChannelColors();
         invalidate();
     }
 
@@ -97,6 +99,9 @@ final class PianoView extends View {
             low = Math.min(low, note.pitch);
             high = Math.max(high, note.pitch);
         }
+        noteMaxEnd = new double[count];
+        double maxEnd = 0;
+        for (int i = 0; i < count; i++) { maxEnd = Math.max(maxEnd, noteEnd[i]); noteMaxEnd[i] = maxEnd; }
         if (count == 0) {
             base = 48;
             topWhite = defaultTopWhite(base);
@@ -112,6 +117,7 @@ final class PianoView extends View {
             measureSeconds[i] = value.seconds(measure.tick);
             measureLabels[i] = measure.number + (measure.visit > 1 ? " (" + measure.visit + ")" : "");
         }
+        rebuildChannelColors();
         rebuild();
         invalidate();
     }
@@ -214,9 +220,30 @@ final class PianoView extends View {
         return playheadX + (float) ((seconds - currentSeconds) * pxPerSecond);
     }
 
+    private void rebuildChannelColors() {
+        channelColors = new int[channels.size() * 2];
+        for (int channel = 0; channel < channels.size(); channel++) {
+            for (int variant = 0; variant < 2; variant++) {
+                int hue = (themeHue + channel * 43 + (variant == 1 ? 24 : 0)) % 360;
+                channelColors[channel * 2 + variant] = UiTheme.noteColor(hue, dark);
+            }
+        }
+    }
+
     private int channelColor(int channel, int staff) {
+        int index = channel * 2 + (staff == 2 ? 1 : 0);
+        if (index >= 0 && index < channelColors.length) return channelColors[index];
         int hue = (themeHue + channel * 43 + (staff == 2 ? 24 : 0)) % 360;
         return UiTheme.noteColor(hue, dark);
+    }
+
+    static int firstAtOrAbove(double[] values, double target) {
+        int low = 0, high = values.length;
+        while (low < high) {
+            int mid = (low + high) >>> 1;
+            if (values[mid] < target) low = mid + 1; else high = mid;
+        }
+        return low;
     }
 
     private boolean muted(int note) {
@@ -273,9 +300,11 @@ final class PianoView extends View {
             paint.setTextAlign(Paint.Align.RIGHT);
             canvas.drawText(noteName(pitch), contentLeft - 7 * density, y + 3.5f * density, paint);
         }
-        for (int i = 0; i < measureSeconds.length; i++) {
+        int measureFrom = firstAtOrAbove(measureSeconds, currentSeconds - past);
+        for (int i = measureFrom; i < measureSeconds.length; i++) {
             float x = timeToX(measureSeconds[i], currentSeconds);
-            if (x < contentLeft - 2 || x > rollRect.right + 2) continue;
+            if (x > rollRect.right + 2) break;
+            if (x < contentLeft - 2) continue;
             stroke.setColor(dark ? 0x774A6570 : 0x664C796E);
             canvas.drawLine(x, rollLaneTop, x, rollRect.bottom, stroke);
         }
@@ -287,9 +316,10 @@ final class PianoView extends View {
         float lastRight = -Float.MAX_VALUE;
         canvas.save();
         canvas.clipRect(contentLeft, rollRect.top, rollRect.right, rollLaneTop);
-        for (int i = 0; i < measureSeconds.length; i++) {
+        for (int i = measureFrom; i < measureSeconds.length; i++) {
             float x = timeToX(measureSeconds[i], currentSeconds);
-            if (x < contentLeft || x > rollRect.right) continue;
+            if (x > rollRect.right) break;
+            if (x < contentLeft) continue;
             float fade = Math.min(1f, (x - contentLeft) / fadeWidth);
             if (fade <= .02f) continue;
             String label = measureLabels[i];
@@ -302,9 +332,10 @@ final class PianoView extends View {
         canvas.restore();
         canvas.save();
         canvas.clipRect(contentLeft, rollLaneTop, rollRect.right, rollRect.bottom);
-        for (int i = 0; i < noteStart.length; i++) {
-            if (noteEnd[i] < currentSeconds - past) continue;
-            if (noteStart[i] > currentSeconds + future) break;
+        double lower = currentSeconds - past, upper = currentSeconds + future;
+        for (int i = firstAtOrAbove(noteMaxEnd, lower); i < noteStart.length; i++) {
+            if (noteStart[i] > upper) break;
+            if (noteEnd[i] < lower) continue;
             float x1 = timeToX(noteStart[i], currentSeconds), x2 = timeToX(noteEnd[i], currentSeconds);
             if (x2 < contentLeft || x1 > rollRect.right) continue;
             float y = pitchY(notePitch[i]);
@@ -340,7 +371,7 @@ final class PianoView extends View {
             paint.setColor(mutedColor);
             paint.setTextAlign(Paint.Align.CENTER);
             paint.setTextSize(15 * scaledDensity);
-            canvas.drawText("匯入 MusicXML／MIDI 樂譜開始播放", contentLeft + contentWidth / 2, rollLaneTop + (rollRect.bottom - rollLaneTop) / 2, paint);
+            canvas.drawText("匯入 MusicXML 樂譜開始播放", contentLeft + contentWidth / 2, rollLaneTop + (rollRect.bottom - rollLaneTop) / 2, paint);
         }
         paint.setColor(dark ? 0xFF2B3D46 : 0xFFD6E4DE);
         canvas.drawRect(0, rollRect.bottom, getWidth(), rollRect.bottom + Math.max(1, density), paint);

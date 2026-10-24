@@ -7,9 +7,11 @@ final class SampleVoice {
     private double firstPos, secondPos, firstStep, secondStep, mix, firstGain = 1, secondGain = 1;
     private double envelope, release;
     private int outputRate, age;
+    private boolean tone;
+    private double toneCoeff, lp1L, lp2L, lp1R, lp2R;
     boolean active;
     float left, right;
-    void clear() { first = second = null; active = false; left = right = 0; }
+    void clear() { first = second = null; active = false; left = right = 0; resetTone(); }
     void start(PianoSample sample, int pitch, int outputRate) { start(sample, null, 0, 1, 1, pitch, outputRate); }
     void start(PianoSample soft, PianoSample loud, double blend, int pitch, int outputRate) {
         start(soft, loud, blend, LEGACY_SOFT_GAIN, 1, pitch, outputRate);
@@ -26,13 +28,24 @@ final class SampleVoice {
         firstStep = this.first == null ? 0 : this.first.rate / (double) outputRate * Math.pow(2, (pitch - this.first.root) / 12.0);
         secondStep = this.second == null ? 0 : this.second.rate / (double) outputRate * Math.pow(2, (pitch - this.second.root) / 12.0);
         envelope = release = 1; age = 0; left = right = 0;
+        resetTone();
         active = this.first != null || this.second != null;
+    }
+    void tone(double cutoffHz, int outputRate) {
+        resetTone();
+        if (cutoffHz <= 0 || cutoffHz >= outputRate * .5) return;
+        toneCoeff = 1 - Math.exp(-2 * Math.PI * cutoffHz / outputRate);
+        tone = true;
+    }
+    private void resetTone() {
+        tone = false; toneCoeff = 0; lp1L = lp2L = lp1R = lp2R = 0;
     }
     void seek(double seconds) {
         double time = Math.max(0, seconds);
         firstPos = time * outputRate * firstStep;
         secondPos = time * outputRate * secondStep;
         age = (int) Math.min(Integer.MAX_VALUE, time * outputRate);
+        lp1L = lp2L = lp1R = lp2R = 0;
         active = playing(first, firstPos) || playing(second, secondPos);
     }
     void release(double seconds) { release = Math.exp(-1.0 / (outputRate * seconds)); }
@@ -47,6 +60,10 @@ final class SampleVoice {
             add(second, secondPos, Math.sqrt(mix) * secondGain, gain);
         } else if (firstOn) add(first, firstPos, firstGain, gain);
         else add(second, secondPos, secondGain, gain);
+        if (tone) {
+            lp1L += toneCoeff * (left - lp1L); lp2L += toneCoeff * (lp1L - lp2L); left = (float) lp2L;
+            lp1R += toneCoeff * (right - lp1R); lp2R += toneCoeff * (lp1R - lp2R); right = (float) lp2R;
+        }
         if (firstOn) firstPos += firstStep;
         if (secondOn) secondPos += secondStep;
         envelope *= release;

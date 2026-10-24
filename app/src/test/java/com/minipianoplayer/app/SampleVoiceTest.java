@@ -67,6 +67,20 @@ public class SampleVoiceTest {
         assertEquals(.7121, voice.right, .01);
     }
 
+    @Test public void toneControlAttenuatesHighFrequencies() {
+        short[] pcm = new short[24000 * 2];
+        for (int i = 0; i < 24000; i++) { short value = (short) (i % 2 == 0 ? 30000 : -30000); pcm[i * 2] = value; pcm[i * 2 + 1] = value; }
+        PianoSample sample = new PianoSample(69, 24000, 2, pcm);
+        SampleVoice plain = new SampleVoice(), filtered = new SampleVoice();
+        plain.start(sample, 69, 48000); filtered.start(sample, 69, 48000); filtered.tone(1500, 48000);
+        double plainSum = 0, filteredSum = 0; int count = 0;
+        for (int i = 0; i < 4000; i++) {
+            plain.next(); filtered.next();
+            if (i > 1000) { plainSum += plain.left * plain.left; filteredSum += filtered.left * filtered.left; count++; }
+        }
+        assertTrue(filteredSum / count < plainSum / count * .25);
+    }
+
     @Test public void velocityLayerBlendUsesEqualPowerWeights() {
         PianoSample first = constant(.5), second = constant(.5);
         SampleVoice voice = new SampleVoice();

@@ -8,7 +8,7 @@
 | MusicXML `.xml` | 是 |
 | 壓縮 MusicXML `.mxl` | 是（需有 container.xml） |
 | JSON 包裝 | 是（`musicxml` 欄位） |
-| MIDI | 否 |
+| Standard MIDI File `.mid`／`.midi` | 否 |
 | 音訊檔 | 否 |
 
 只接受 `score-partwise`。`score-timewise` 會顯示不支援訊息。
@@ -45,12 +45,12 @@
 
 ## 5. 多樂器樂譜
 
-APP 會以鋼琴音色播放所有可發聲音符。若樂譜包含多個樂器聲部，匯入摘要會提醒「將全部以鋼琴音色播放」。聲部選單可個別靜音。
+自動模式會讀取 `part-name`、`part-abbreviation`、`score-instrument/instrument-name` 與 `midi-instrument/midi-program`，替每個聲部分配鋼琴或小提琴；中提琴、大提琴與低音提琴會使用小提琴音色，低音預設以移調小提琴補位。無法辨識的樂器改用鋼琴並在匯入摘要提醒。混合樂譜會同時載入兩種音色，聲部選單可個別靜音；「弦樂低音使用小提琴（移調）」可切換中提琴／大提琴低音是否改用小提琴。手動選音色時，所有聲部仍使用同一個音色。
 
 ## 6. 不支援或簡化
 
 - 裝飾音、滑音、琶音等裝飾效果。
 - 歌詞、和弦符號、五線譜排版。
-- 音訊檔或 MIDI 事件。
+- 音訊檔、MIDI 檔或即時 MIDI 輸入事件。
 - 即時網路下載樂譜。
 - 樂譜匯出。

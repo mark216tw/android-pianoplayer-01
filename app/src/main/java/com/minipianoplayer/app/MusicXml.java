@@ -64,6 +64,10 @@ public final class MusicXml {
         bytes = unwrapJson(bytes);
         return MusicXmlReader.read(document(bytes), new String(bytes, StandardCharsets.UTF_8));
     }
+    public static String composer(String xml) {
+        try { return MusicXmlReader.composer(document(xml.getBytes(StandardCharsets.UTF_8)).getDocumentElement()); }
+        catch (Exception e) { return ""; }
+    }
     private static byte[] unwrapJson(byte[] bytes) throws IOException {
         String content = new String(bytes, StandardCharsets.UTF_8).trim();
         if (content.startsWith("\uFEFF")) content = content.substring(1).trim();

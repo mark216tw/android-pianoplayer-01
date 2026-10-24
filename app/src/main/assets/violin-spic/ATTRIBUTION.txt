@@ -1,0 +1,26 @@
+VSCO 2 Community Edition (CE) — Solo Violin
+
+Arco Vib (sustained) and Spiccato (short) samples.
+Recorded by Sam Gossner & Simon Dalzell.
+Sample cutting by Elan Hickler / Soundemote.
+Source: https://github.com/sgossner/VSCO-2-CE
+Pinned revision: 440300901dfe9275fd84e0b7763af1f8443ae62e
+
+License: Creative Commons CC0 1.0 Universal (public domain dedication).
+License URL: https://creativecommons.org/publicdomain/zero/1.0/
+Full license: LICENSE.txt in this directory.
+
+Low-range fallback (MIDI 21-54) uses the bundled Salamander Grand Piano samples:
+Original piano recordings by Alexander Holm (Yamaha C5), mapped by kinwie.
+Source: https://github.com/sfzinstruments/SalamanderGrandPiano
+License: Creative Commons Attribution 3.0 Unported (CC BY 3.0).
+Full piano license: included in LICENSE.txt in this directory.
+
+This mobile sound bank is derived from the above instruments.
+Changes: selected Arco Vib p/f and Spiccato v1/v2 rr1; trimmed Arco tails to
+4.5/4.0/3.5 seconds and Spiccato tails to 1.5 seconds; shortened the soft Arco
+onset; resampled everything to 44.1 kHz; applied a K-weighted per-key
+attack/sustain loudness calibration; and converted to 16-bit PCM WAV. Arco and
+Spiccato use a 0.05 / 0.03 second release and ignore the piano sustain pedal.
+The original authors do not endorse this application. The sample licenses do
+not apply to the unrelated application source code.

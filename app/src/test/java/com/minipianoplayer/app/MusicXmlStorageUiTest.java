@@ -36,6 +36,7 @@ public class MusicXmlStorageUiTest {
         assertEquals(XML, restored.originalXml); assertEquals(60, restored.timeline().bpmAt(0), 0);
         assertEquals(score.notes.get(0).voice, restored.notes.get(0).voice); assertEquals(2, restored.channels().size());
         assertEquals(score.mutedVoices, restored.mutedVoices); assertEquals(score.endTick, restored.endTick); assertEquals(score.features, restored.features);
+        assertEquals(score.partSounds, restored.partSounds); assertEquals(score.partInstruments, restored.partInstruments);
     }
     @Test public void legacyFourFieldDataLoadsWithDefaultVoiceAndTempo() throws Exception {
         var context = RuntimeEnvironment.getApplication();
@@ -43,6 +44,40 @@ public class MusicXmlStorageUiTest {
         try (var output = context.openFileOutput("performance.json", 0)) { output.write(legacy.getBytes(StandardCharsets.UTF_8)); }
         Score score = new ScoreStorage(context).load(); assertEquals("舊資料", score.title); assertNull(score.originalXml);
         assertEquals(.5, score.seconds(score.length()), .00001); assertEquals("P1", score.notes.get(0).part); assertEquals(1, score.channels().size());
+    }
+    @Test public void legacyPartNamesInferToneAssignments() throws Exception {
+        var context = RuntimeEnvironment.getApplication();
+        String legacy = "{\"title\":\"舊二重奏\",\"bpm\":120,\"beats\":4,\"beatType\":4,"
+            + "\"notes\":[[72,0,480,90,\"P1\",\"1\",1,1],[60,0,480,90,\"P2\",\"1\",2,2]],"
+            + "\"pedals\":[],\"partNames\":{\"P1\":\"Violin\",\"P2\":\"Piano\"}}";
+        try (var output = context.openFileOutput("performance.json", 0)) { output.write(legacy.getBytes(StandardCharsets.UTF_8)); }
+        Score score = new ScoreStorage(context).load();
+        assertEquals(PianoSound.VIOLIN, (int) score.partSounds.get("P1"));
+        assertEquals(PianoSound.SALAMANDER, (int) score.partSounds.get("P2"));
+    }
+    @Test public void composerSurvivesSaving() throws Exception {
+        var context = RuntimeEnvironment.getApplication();
+        Score score = imported(); score.composer = "Antonio Vivaldi";
+        new ScoreStorage(context).save(score);
+        assertEquals("Antonio Vivaldi", new ScoreStorage(context).load().composer);
+    }
+    @Test public void lowStringPartsSurviveSaving() throws Exception {
+        var context = RuntimeEnvironment.getApplication();
+        Score score = imported(); score.lowStringParts.add("P1");
+        new ScoreStorage(context).save(score);
+        assertTrue(new ScoreStorage(context).load().lowStringParts.contains("P1"));
+    }
+    @Test public void legacyUnrecognizedViolaIsReDetectedAsString() throws Exception {
+        var context = RuntimeEnvironment.getApplication();
+        String legacy = "{\"title\":\"舊弦樂\",\"bpm\":120,\"beats\":4,\"beatType\":4,"
+            + "\"notes\":[[60,0,480,90,\"P4\",\"1\",1,1]],\"pedals\":[],"
+            + "\"partNames\":{\"P4\":\"Viola\"},\"partSounds\":{\"P4\":0},"
+            + "\"partInstruments\":{\"P4\":\"鋼琴（未辨識）\"}}";
+        try (var output = context.openFileOutput("performance.json", 0)) { output.write(legacy.getBytes(StandardCharsets.UTF_8)); }
+        Score score = new ScoreStorage(context).load();
+        assertEquals(PianoSound.VIOLIN, (int) score.partSounds.get("P4"));
+        assertEquals("中提琴", score.partInstruments.get("P4"));
+        assertTrue(score.lowStringParts.contains("P4"));
     }
     @Test public void voiceDialogMutesAndPersistsSelection() throws Exception {
         var context = RuntimeEnvironment.getApplication();
@@ -57,6 +92,7 @@ public class MusicXmlStorageUiTest {
             View voicesItem = menu.getListView().getAdapter().getView(1, null, menu.getListView());
             menu.getListView().performItemClick(voicesItem, 1, 1);
             var dialog = ShadowAlertDialog.getLatestAlertDialog(); assertEquals(2, dialog.getListView().getCount());
+            assertTrue(dialog.getListView().getMinimumHeight() > 0);
             View choice = dialog.getListView().getAdapter().getView(0, null, dialog.getListView());
             assertTrue(dialog.getListView().isItemChecked(0)); dialog.getListView().performItemClick(choice, 0, 0); dialog.dismiss();
             java.lang.reflect.Field scoreField = MainActivity.class.getDeclaredField("score"); scoreField.setAccessible(true);

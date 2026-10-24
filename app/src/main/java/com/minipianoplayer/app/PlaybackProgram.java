@@ -20,8 +20,8 @@ final class PlaybackProgram {
     final Event[] events;
     final List<Score.Channel> channels;
     final Map<String, Integer> parts = new LinkedHashMap<>();
-    final int[] noteParts, noteChannels, pedalParts;
-    final boolean[] initialMuted;
+    final int[] noteParts, noteChannels, pedalParts, noteSounds, requiredSounds;
+    final boolean[] initialMuted, noteLowStrings;
     final double duration;
     final long length;
     PlaybackProgram(Score source) {
@@ -31,11 +31,21 @@ final class PlaybackProgram {
         for (Score.Note n : score.notes) parts.computeIfAbsent(n.part, key -> parts.size());
         for (Score.Pedal p : score.pedals) parts.computeIfAbsent(p.part, key -> parts.size());
         noteParts = new int[score.notes.size()]; noteChannels = new int[score.notes.size()]; pedalParts = new int[score.pedals.size()];
+        noteSounds = new int[score.notes.size()]; noteLowStrings = new boolean[score.notes.size()];
+        boolean piano = false, violin = false;
         ArrayList<Event> compiled = new ArrayList<>();
         for (int id = 0; id < score.notes.size(); id++) {
             Score.Note n = score.notes.get(id); noteParts[id] = parts.get(n.part); noteChannels[id] = channelIds.get(n.channelKey());
+            noteSounds[id] = score.partSounds.getOrDefault(n.part, PianoSound.SALAMANDER);
+            noteLowStrings[id] = score.lowStringParts.contains(n.part);
+            if (noteSounds[id] == PianoSound.SALAMANDER) piano = true;
+            if (noteSounds[id] == PianoSound.VIOLIN) violin = true;
             compiled.add(new Event(n.start, timeline, NOTE_ON, id, noteParts[id], false)); compiled.add(new Event(n.end(), timeline, NOTE_OFF, id, noteParts[id], false));
         }
+        requiredSounds = new int[(piano ? 1 : 0) + (violin ? 1 : 0)];
+        int soundIndex = 0;
+        if (piano) requiredSounds[soundIndex++] = PianoSound.SALAMANDER;
+        if (violin) requiredSounds[soundIndex] = PianoSound.VIOLIN;
         for (int i = 0; i < score.pedals.size(); i++) { Score.Pedal p = score.pedals.get(i); pedalParts[i] = parts.get(p.part); compiled.add(new Event(p.tick, timeline, PEDAL, 0, pedalParts[i], p.down)); }
         compiled.sort(Comparator.comparingDouble((Event e) -> e.seconds).thenComparingInt(e -> e.type)); events = compiled.toArray(new Event[0]);
     }

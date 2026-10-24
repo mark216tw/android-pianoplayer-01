@@ -112,9 +112,13 @@ public class ThemeSettingsTest {
             MainActivity activity = controller.get();
             View sound = openMore(activity, 0);
             assertNull(sound.findViewWithTag("pianoVolume"));
-            assertTrue(sound.findViewWithTag("sampledPiano").isSelected());
+            assertTrue(sound.findViewWithTag("autoSound").isSelected());
+            assertFalse(sound.findViewWithTag("sampledPiano").isSelected());
+            assertFalse(sound.findViewWithTag("sampledViolin").isSelected());
             ((Button) sound.findViewWithTag("syntheticPiano")).performClick();
             assertEquals(PianoSound.SYNTHETIC, UiTheme.preferences(activity).getInt("pianoSound", -1));
+            assertFalse(sound.findViewWithTag("sampledViolin").isSelected());
+            assertFalse(sound.findViewWithTag("autoSound").isSelected());
             android.widget.CheckBox toggle = sound.findViewWithTag("pianoReverb");
             android.widget.SeekBar reverb = sound.findViewWithTag("pianoReverbMix");
             assertNotNull(toggle); assertNotNull(reverb);
@@ -125,6 +129,16 @@ public class ThemeSettingsTest {
             android.os.Bundle args = new android.os.Bundle(); args.putFloat(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, 37);
             assertTrue(reverb.performAccessibilityAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId(), args));
             assertEquals(37, UiTheme.preferences(activity).getInt("pianoReverbMix", -1));
+            android.widget.CheckBox lowStrings = sound.findViewWithTag("stringLowViolin");
+            assertNotNull(lowStrings); assertTrue(lowStrings.isChecked());
+            lowStrings.performClick();
+            assertFalse(UiTheme.preferences(activity).getBoolean("stringLowViolin", true));
+            android.widget.SeekBar violinVolume = sound.findViewWithTag("violinVolume");
+            assertNotNull(violinVolume); assertEquals(75, violinVolume.getProgress());
+            android.os.Bundle volumeArgs = new android.os.Bundle();
+            volumeArgs.putFloat(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, 60);
+            assertTrue(violinVolume.performAccessibilityAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId(), volumeArgs));
+            assertEquals(60, UiTheme.preferences(activity).getInt("violinVolume", -1));
         }
         try (var controller = Robolectric.buildActivity(MainActivity.class).setup()) {
             View sound = openMore(controller.get(), 0);
@@ -132,6 +146,8 @@ public class ThemeSettingsTest {
             assertTrue(((android.widget.CheckBox) sound.findViewWithTag("pianoReverb")).isChecked());
             android.widget.SeekBar reverb = sound.findViewWithTag("pianoReverbMix");
             assertTrue(reverb.isEnabled()); assertEquals(37, reverb.getProgress());
+            assertFalse(((android.widget.CheckBox) sound.findViewWithTag("stringLowViolin")).isChecked());
+            assertEquals(60, ((android.widget.SeekBar) sound.findViewWithTag("violinVolume")).getProgress());
         }
     }
     @Test public void syntheticSelectionIsExclusiveAndPersists() {
@@ -141,9 +157,41 @@ public class ThemeSettingsTest {
             ((Button) sound.findViewWithTag("syntheticPiano")).performClick();
             assertEquals(PianoSound.SYNTHETIC, PianoSound.selected(activity)); assertTrue(sound.findViewWithTag("syntheticPiano").isSelected());
             assertFalse(sound.findViewWithTag("sampledPiano").isSelected());
+            assertFalse(sound.findViewWithTag("sampledViolin").isSelected());
+            assertFalse(sound.findViewWithTag("autoSound").isSelected());
         }
         try (var controller = Robolectric.buildActivity(MainActivity.class).setup()) {
             assertTrue(openMore(controller.get(), 0).findViewWithTag("syntheticPiano").isSelected());
+        }
+    }
+    @Test public void violinSelectionIsExclusiveAndPersists() {
+        try (var controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+            MainActivity activity = controller.get();
+            View sound = openMore(activity, 0);
+            ((Button) sound.findViewWithTag("sampledViolin")).performClick();
+            assertEquals(PianoSound.VIOLIN, PianoSound.selected(activity));
+            assertTrue(sound.findViewWithTag("sampledViolin").isSelected());
+            assertFalse(sound.findViewWithTag("sampledPiano").isSelected());
+            assertFalse(sound.findViewWithTag("syntheticPiano").isSelected());
+            assertFalse(sound.findViewWithTag("autoSound").isSelected());
+        }
+        try (var controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+            assertTrue(openMore(controller.get(), 0).findViewWithTag("sampledViolin").isSelected());
+        }
+    }
+    @Test public void autoSelectionIsExclusiveAndPersists() {
+        try (var controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+            MainActivity activity = controller.get();
+            View sound = openMore(activity, 0);
+            assertTrue(sound.findViewWithTag("autoSound").isSelected());
+            ((Button) sound.findViewWithTag("sampledViolin")).performClick();
+            ((Button) sound.findViewWithTag("autoSound")).performClick();
+            assertEquals(PianoSound.AUTO, PianoSound.selected(activity));
+            assertTrue(sound.findViewWithTag("autoSound").isSelected());
+            assertFalse(sound.findViewWithTag("sampledViolin").isSelected());
+        }
+        try (var controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+            assertTrue(openMore(controller.get(), 0).findViewWithTag("autoSound").isSelected());
         }
     }
     @Test public void legacySoundIdsMapToSalamanderOrSynthetic() {
@@ -152,7 +200,11 @@ public class ThemeSettingsTest {
         assertEquals(PianoSound.SYNTHETIC, PianoSound.selected(context));
         UiTheme.preferences(context).edit().putInt("pianoSound", 1).commit();
         assertEquals(PianoSound.SALAMANDER, PianoSound.selected(context));
+        UiTheme.preferences(context).edit().putInt("pianoSound", PianoSound.VIOLIN).commit();
+        assertEquals(PianoSound.VIOLIN, PianoSound.selected(context));
+        UiTheme.preferences(context).edit().putInt("pianoSound", PianoSound.AUTO).commit();
+        assertEquals(PianoSound.AUTO, PianoSound.selected(context));
         UiTheme.preferences(context).edit().clear().putBoolean("sampledPiano", false).commit();
-        assertEquals(PianoSound.SALAMANDER, PianoSound.selected(context));
+        assertEquals(PianoSound.AUTO, PianoSound.selected(context));
     }
 }

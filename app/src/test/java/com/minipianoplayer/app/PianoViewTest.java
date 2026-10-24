@@ -45,6 +45,14 @@ public class PianoViewTest {
         assertEquals(24, view.whites());
         assertTrue(view.rangeLabel().contains("24 鍵"));
     }
+    @Test public void binarySearchFindsFirstValueAtOrAboveTarget() {
+        double[] values = {0, 1, 1, 2, 5};
+        assertEquals(0, PianoView.firstAtOrAbove(values, -1));
+        assertEquals(1, PianoView.firstAtOrAbove(values, 1));
+        assertEquals(4, PianoView.firstAtOrAbove(values, 3));
+        assertEquals(5, PianoView.firstAtOrAbove(values, 6));
+        assertEquals(0, PianoView.firstAtOrAbove(new double[0], 0));
+    }
     @Test public void portraitGivesTheRollMoreHeightThanTheKeyboard() throws Exception {
         PianoView view = view(score(21, 108));
         Field rollField = PianoView.class.getDeclaredField("rollRect"); rollField.setAccessible(true);

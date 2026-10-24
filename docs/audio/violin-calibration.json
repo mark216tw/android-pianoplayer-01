@@ -1,0 +1,48 @@
+{
+  "sampleRate": 48000,
+  "attackSeconds": 0.05,
+  "sustainSeconds": 0.25,
+  "attackWeight": 0.7,
+  "sustainWeight": 0.3,
+  "targetLayer": "loud",
+  "maxGain": 40,
+  "before": {
+    "soft": {
+      "metricSpreadDb": 10.379,
+      "attackSpreadDb": 15.26,
+      "sustainSpreadDb": 10.183,
+      "medianMetricDb": -24.067,
+      "medianAttackDb": -24.899,
+      "medianSustainDb": -23.341
+    },
+    "loud": {
+      "metricSpreadDb": 6.468,
+      "attackSpreadDb": 10.196,
+      "sustainSpreadDb": 5.953,
+      "medianMetricDb": -20.016,
+      "medianAttackDb": -22.654,
+      "medianSustainDb": -17.219
+    }
+  },
+  "after": {
+    "soft": {
+      "metricSpreadDb": 0.0,
+      "attackSpreadDb": 7.111,
+      "sustainSpreadDb": 5.278,
+      "medianMetricDb": -20.016,
+      "medianAttackDb": -20.79,
+      "medianSustainDb": -18.614
+    },
+    "loud": {
+      "metricSpreadDb": 0.0,
+      "attackSpreadDb": 6.23,
+      "sustainSpreadDb": 3.208,
+      "medianMetricDb": -20.016,
+      "medianAttackDb": -22.424,
+      "medianSustainDb": -17.02
+    }
+  },
+  "maxGainAfter": 2.380635,
+  "maxAttackPeakAfter": 0.346261,
+  "maxFullPeakAfter": 0.631194
+}

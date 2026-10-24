@@ -27,6 +27,11 @@ final class SampleBank {
     private final int layers, sampleRate, channels;
     private final int[] velocityLow, velocityHigh;
     private final double legacyLow, legacyHigh;
+    private final double releaseSeconds;
+    private final boolean sustainPedal;
+    private final int naturalLow, naturalHigh, coverageLow, coverageHigh;
+    private final int toneStartMidi, toneEndMidi;
+    private final double toneStartHz, toneEndHz, outputGain;
     private final boolean legacy;
     long decodedBytes;
     int sampleCount;
@@ -41,25 +46,45 @@ final class SampleBank {
     }
 
     private SampleBank(int layers, boolean legacy, int sampleRate, int channels, double legacyLow, double legacyHigh,
-                       int[] velocityLow, int[] velocityHigh) {
+                       int[] velocityLow, int[] velocityHigh, double releaseSeconds, boolean sustainPedal,
+                       int naturalLow, int naturalHigh, int coverageLow, int coverageHigh,
+                       int toneStartMidi, int toneEndMidi, double toneStartHz, double toneEndHz, double outputGain) {
         this.layers = layers; this.legacy = legacy; this.sampleRate = sampleRate; this.channels = channels;
         this.legacyLow = legacyLow; this.legacyHigh = legacyHigh;
         this.velocityLow = velocityLow; this.velocityHigh = velocityHigh;
+        this.releaseSeconds = releaseSeconds; this.sustainPedal = sustainPedal;
+        this.naturalLow = naturalLow; this.naturalHigh = naturalHigh;
+        this.coverageLow = coverageLow; this.coverageHigh = coverageHigh;
+        this.toneStartMidi = toneStartMidi; this.toneEndMidi = toneEndMidi;
+        this.toneStartHz = toneStartHz; this.toneEndHz = toneEndHz; this.outputGain = outputGain;
         pitches = new PianoSample[layers][128];
         gains = new double[layers][128];
         for (double[] row : gains) java.util.Arrays.fill(row, 1);
     }
 
     PianoSample sample(int pitch, int layer) {
-        return pitch >= 21 && pitch <= 108 && layer >= 0 && layer < layers ? pitches[layer][pitch] : null;
+        return pitch >= coverageLow && pitch <= coverageHigh && layer >= 0 && layer < layers ? pitches[layer][pitch] : null;
     }
     PianoSample sample(int pitch) { return sample(pitch, layers - 1); }
     int layers() { return layers; }
     boolean calibrated() { return calibrated; }
     int sampleRate() { return sampleRate; }
     int channels() { return channels; }
+    double releaseSeconds() { return releaseSeconds; }
+    double outputGain() { return outputGain; }
+    boolean sustainPedal() { return sustainPedal; }
+    int naturalLow() { return naturalLow; }
+    int naturalHigh() { return naturalHigh; }
+    int coverageLow() { return coverageLow; }
+    int coverageHigh() { return coverageHigh; }
+    double toneHz(int pitch) {
+        if (toneStartHz <= 0 || pitch <= toneStartMidi) return 0;
+        if (pitch >= toneEndMidi) return toneEndHz;
+        double ratio = (pitch - toneStartMidi) / (double) (toneEndMidi - toneStartMidi);
+        return toneStartHz * Math.pow(toneEndHz / toneStartHz, ratio);
+    }
     double gain(int pitch, int layer) {
-        return pitch >= 21 && pitch <= 108 && layer >= 0 && layer < layers ? gains[layer][pitch] : 1;
+        return pitch >= coverageLow && pitch <= coverageHigh && layer >= 0 && layer < layers ? gains[layer][pitch] : 1;
     }
 
     /** 0 selects the first layer, 1 the last; velocities between centers blend. */
@@ -114,8 +139,28 @@ final class SampleBank {
         JSONArray layerDefinitions = manifest.optJSONArray("layers");
         boolean legacy = layerDefinitions == null;
         if (layerDefinitions != null) layerCount = layerDefinitions.length();
-        if (layerCount < 1 || layerCount > 4) throw new IOException("鋼琴音色力度層數量無效");
+        if (layerCount < 1 || layerCount > 4) throw new IOException("音色力度層數量無效");
         int sampleRate = manifest.optInt("sampleRate", 0), channels = manifest.optInt("channels", 0);
+        double releaseSeconds = manifest.optDouble("releaseSeconds", 0);
+        if (!Double.isFinite(releaseSeconds) || releaseSeconds < 0 || releaseSeconds > 5) throw new IOException("音色釋放時間無效");
+        double outputGain = manifest.optDouble("outputGain", 1);
+        if (!Double.isFinite(outputGain) || outputGain <= 0 || outputGain > 4) throw new IOException("音色輸出增益無效");
+        boolean sustainPedal = manifest.optBoolean("sustainPedal", true);
+        int naturalLow = manifest.optInt("naturalLowMidi", 21), naturalHigh = manifest.optInt("naturalHighMidi", 108);
+        if (naturalLow < 21 || naturalHigh > 108 || naturalLow > naturalHigh) throw new IOException("音色自然音域無效");
+        int coverageLow = manifest.optInt("coverageLowMidi", 21), coverageHigh = manifest.optInt("coverageHighMidi", 108);
+        if (coverageLow < 21 || coverageHigh > 108 || coverageLow > coverageHigh) throw new IOException("音色涵蓋音域無效");
+        int toneStartMidi = manifest.optInt("toneStartMidi", 0), toneEndMidi = manifest.optInt("toneEndMidi", 0);
+        double toneStartHz = manifest.optDouble("toneStartHz", 0), toneEndHz = manifest.optDouble("toneEndHz", 0);
+        if (toneStartHz > 0) {
+            if (toneStartMidi < 21 || toneEndMidi > 108 || toneStartMidi >= toneEndMidi
+                    || !Double.isFinite(toneStartHz) || !Double.isFinite(toneEndHz)
+                    || toneStartHz <= toneEndHz || toneEndHz < 100 || toneStartHz > 24000) {
+                throw new IOException("音色高音衰減設定無效");
+            }
+        } else {
+            toneStartMidi = toneEndMidi = 0; toneStartHz = toneEndHz = 0;
+        }
         double crossfadeLow = 64, crossfadeHigh = 88;
         JSONArray crossfade = manifest.optJSONArray("velocityCrossfade");
         if (crossfade != null && crossfade.length() >= 2) { crossfadeLow = crossfade.getDouble(0); crossfadeHigh = crossfade.getDouble(1); }
@@ -135,10 +180,12 @@ final class SampleBank {
                 high[i] = Math.max(low[i], Math.min(127, definition.optInt("high", 127)));
             }
         }
-        SampleBank result = new SampleBank(layerCount, legacy, sampleRate, channels, crossfadeLow, crossfadeHigh, low, high);
+        SampleBank result = new SampleBank(layerCount, legacy, sampleRate, channels, crossfadeLow, crossfadeHigh, low, high,
+                releaseSeconds, sustainPedal, naturalLow, naturalHigh, coverageLow, coverageHigh,
+                toneStartMidi, toneEndMidi, toneStartHz, toneEndHz, outputGain);
         result.calibrated = !legacy;
         if (legacy && layerCount > 1) for (int pitch = 0; pitch < 128; pitch++) result.gains[0][pitch] = 1.78;
-        if (samples.length() < 1 || samples.length() > 512) throw new IOException("鋼琴音色包採樣數量無效");
+        if (samples.length() < 1 || samples.length() > 512) throw new IOException("音色包採樣數量無效");
         int[] roots = new int[layerCount];
         int total = samples.length();
         int[] entryLayer = new int[total], entryRoot = new int[total];
@@ -183,9 +230,9 @@ final class SampleBank {
             if (expectedChannels > 0 && sample.channels != expectedChannels) throw new IOException("音色聲道與對照表不符：" + name);
             if (entry.has("frames") && sample.frames != entry.getInt("frames")) throw new IOException("音色長度與對照表不符：" + name);
             result.decodedBytes += sample.pcm.length * 2L;
-            if (result.decodedBytes > MEMORY_LIMIT) throw new IOException("鋼琴音色記憶體超過上限");
+            if (result.decodedBytes > MEMORY_LIMIT) throw new IOException("音色記憶體超過上限");
             int sampleLow = entry.getInt("lowMidi"), sampleHigh = entry.getInt("highMidi");
-            if (sampleLow < 21 || sampleHigh > 108 || sampleLow > sampleHigh || entryRoot[i] < sampleLow || entryRoot[i] > sampleHigh) throw new IOException("音色音域無效");
+            if (sampleLow < coverageLow || sampleHigh > coverageHigh || sampleLow > sampleHigh || entryRoot[i] < sampleLow || entryRoot[i] > sampleHigh) throw new IOException("音色音域無效");
             double gain = entry.optDouble("gain", 1);
             if (!Double.isFinite(gain) || gain <= 0) throw new IOException("音色增益無效");
             for (int pitch = sampleLow; pitch <= sampleHigh; pitch++) {
@@ -195,7 +242,7 @@ final class SampleBank {
             }
             roots[entryLayer[i]]++;
         }
-        for (int layer = 0; layer < layerCount; layer++) for (int pitch = 21; pitch <= 108; pitch++) {
+        for (int layer = 0; layer < layerCount; layer++) for (int pitch = coverageLow; pitch <= coverageHigh; pitch++) {
             if (result.pitches[layer][pitch] == null) throw new IOException("音色缺少 MIDI " + pitch);
         }
         result.sampleCount = roots[layerCount - 1];

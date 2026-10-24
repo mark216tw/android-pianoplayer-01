@@ -28,6 +28,12 @@ public class MusicXmlTest {
             "<part id=\"P2\"><measure>" + note("", "G", 1) + "</measure></part></score-partwise>");
         assertEquals(2, s.notes.size()); assertEquals(3840, s.notes.get(0).duration); assertEquals(0, s.notes.get(1).start);
     }
+    @Test public void composerIsReadFromIdentification() throws Exception {
+        Score s = read("<score-partwise><identification><creator type=\"composer\">Antonio Vivaldi</creator>"
+            + "<creator type=\"composer\">Second Composer</creator><creator type=\"lyricist\">Lyricist</creator></identification>"
+            + "<part id=\"P1\"><measure>" + note("", "C", 1) + "</measure></part></score-partwise>");
+        assertEquals("Antonio Vivaldi、Second Composer", s.composer);
+    }
     @Test public void pickupGraceRestAndDottedMetronomeAreHandled() throws Exception {
         Score s = read(wrap("<measure implicit=\"yes\"><attributes><divisions>1</divisions></attributes>" +
             "<direction><direction-type><metronome><beat-unit>quarter</beat-unit><beat-unit-dot/><per-minute>80</per-minute></metronome></direction-type></direction>" +

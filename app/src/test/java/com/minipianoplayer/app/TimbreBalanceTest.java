@@ -7,7 +7,7 @@ public class TimbreBalanceTest {
     @Test public void referenceStaysUnchangedAndContoursDoNotJumpAtBandEdges() {
         for (int pitch = 21; pitch <= 108; pitch++) {
             assertEquals(1, TimbreBalance.gain(PianoSound.SALAMANDER, pitch), 0);
-            for (int sound : new int[]{PianoSound.SALAMANDER, PianoSound.SYNTHETIC}) {
+            for (int sound : new int[]{PianoSound.SALAMANDER, PianoSound.VIOLIN, PianoSound.SYNTHETIC}) {
                 double gain = TimbreBalance.gain(sound, pitch); assertTrue(Double.isFinite(gain) && gain > 0 && gain < 8);
                 if (pitch > 21) assertTrue(Math.abs(20 * Math.log10(gain / TimbreBalance.gain(sound, pitch - 1))) < 1);
             }
@@ -20,6 +20,7 @@ public class TimbreBalanceTest {
         for (int pitch = 21; pitch <= 108; pitch++) {
             double synthetic = TimbreBalance.voiceLevel(PianoSound.SYNTHETIC, false, pitch, 90);
             assertEquals(synthetic, TimbreBalance.voiceLevel(PianoSound.SALAMANDER, false, pitch, 90), 0);
+            assertEquals(synthetic, TimbreBalance.voiceLevel(PianoSound.VIOLIN, false, pitch, 90), 0);
             assertEquals(0, TimbreBalance.voiceLevel(PianoSound.SALAMANDER, true, pitch, 0), 0);
             assertTrue(TimbreBalance.voiceLevel(PianoSound.SALAMANDER, true, pitch, 127) > TimbreBalance.voiceLevel(PianoSound.SALAMANDER, true, pitch, 64));
         }

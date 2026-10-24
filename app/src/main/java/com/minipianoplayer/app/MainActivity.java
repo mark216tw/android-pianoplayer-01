@@ -7,7 +7,6 @@ import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -31,7 +30,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public final class MainActivity extends Activity {
-    private static final int IMPORT = 10, LIBRARY = 103;
+    private static final int LIBRARY = 103;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final ExecutorService files = Executors.newSingleThreadExecutor();
     private PianoAudio audio;
@@ -56,7 +55,8 @@ public final class MainActivity extends Activity {
     private ImageButton play, stop, moreButton;
     private java.util.List<Score.Channel> channels = java.util.Collections.emptyList();
     private SeekBar progress;
-    private boolean busy, dragging, resumed, screenOn;
+    private boolean busy, dragging, resumed, screenOn, playRequested;
+    private long playRequestedAt;
     private double dragSeconds = -1;
     private int speedIndex = 2;
     private final double[] speeds = {.5, .75, 1, 1.25, 1.5};
@@ -66,6 +66,7 @@ public final class MainActivity extends Activity {
         @Override public void run() {
             if (!resumed) return;
             boolean playing = audio.playing;
+            if (playing) playRequested = false;
             keepScreenOn(playing);
             syncPlayback();
             long position = (long) audio.position;
@@ -94,9 +95,14 @@ public final class MainActivity extends Activity {
             lastPlaying = playing;
             lastDrawPosition = position;
             if (audio.error != null) { String error = audio.error; audio.error = null; message("音訊無法啟動", error); }
-            handler.postDelayed(this, playing ? 33 : 1000);
+            boolean starting = playRequested && SystemClock.uptimeMillis() - playRequestedAt < 2000;
+            handler.postDelayed(this, playing || starting ? 33 : 1000);
         }
     };
+    private void refreshNow() {
+        handler.removeCallbacks(refresh);
+        if (resumed) handler.post(refresh);
+    }
     @Override public void onCreate(Bundle state) {
         theme = new UiTheme(this); setTheme(theme.dark ? R.style.AppTheme_Dark : R.style.AppTheme);
         super.onCreate(state);
@@ -148,7 +154,7 @@ public final class MainActivity extends Activity {
         }).setNegativeButton("取消", null).show();
     }
     private void moreMenu() {
-        dialog().setTitle("更多選項").setItems(new String[]{"鋼琴音色", "聲部", "匯入摘要"}, (d, which) -> {
+        dialog().setTitle("更多選項").setItems(new String[]{"音色", "聲部", "匯入摘要"}, (d, which) -> {
             if (which == 0) soundSettings();
             else if (which == 1) { if (channels.isEmpty()) toast("目前沒有可調整的聲部"); else voiceSettings(); }
             else { if (score.notes.isEmpty()) toast("目前沒有匯入摘要"); else message("匯入摘要", score.importSummary()); }
@@ -173,22 +179,50 @@ public final class MainActivity extends Activity {
     private void soundSettings() {
         int selected = PianoSound.selected(this);
         LinearLayout content = new LinearLayout(this); content.setOrientation(LinearLayout.VERTICAL); content.setPadding(dp(20), dp(8), dp(20), dp(4));
-        String[] tags = {"sampledPiano", "syntheticPiano"};
-        final Button[] buttons = new Button[2];
-        LinearLayout soundRow = row(); content.addView(soundRow);
-        for (int i = 0; i < 2; i++) {
+        String[] tags = {"autoSound", "sampledPiano", "sampledViolin", "syntheticPiano"};
+        final int count = PianoSound.SELECTABLE.length;
+        final Button[] buttons = new Button[count];
+        final TextView violinNote = label("", 11, theme.muted);
+        LinearLayout firstRow = row(), secondRow = row();
+        content.addView(firstRow); content.addView(secondRow);
+        for (int i = 0; i < count; i++) {
             final int sound = PianoSound.SELECTABLE[i];
-            Button button = new Button(this); button.setTextSize(14); button.setAllCaps(false);
+            Button button = new Button(this); button.setTextSize(12); button.setAllCaps(false);
             button.setMinWidth(0); button.setMinimumWidth(0); button.setMinHeight(0); button.setMinimumHeight(0);
-            button.setPadding(dp(8), 0, dp(8), 0); button.setTag(tags[i]);
-            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(48), 1); params.setMargins(0, dp(3), dp(8), dp(3));
-            soundRow.addView(button, params);
+            button.setPadding(dp(4), 0, dp(4), 0); button.setTag(tags[i]);
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(0, dp(48), 1); params.setMargins(0, dp(3), dp(4), dp(3));
+            (i < 2 ? firstRow : secondRow).addView(button, params);
             button.setOnClickListener(v -> {
-                PianoSound.select(this, sound); SampleBankStore.start(this, sound); audio.configure(this);
-                for (int j = 0; j < 2; j++) selectionStyle(buttons[j], PianoSound.name(PianoSound.SELECTABLE[j]), PianoSound.selected(this) == PianoSound.SELECTABLE[j]);
+                PianoSound.select(this, sound); audio.configure(this);
+                for (int j = 0; j < count; j++) selectionStyle(buttons[j], PianoSound.name(PianoSound.SELECTABLE[j]), PianoSound.selected(this) == PianoSound.SELECTABLE[j]);
+                updateSoundNote(violinNote, PianoSound.selected(this));
             });
             buttons[i] = button;
         }
+        violinNote.setPadding(0, dp(5), 0, 0); content.addView(violinNote);
+        updateSoundNote(violinNote, selected);
+        boolean lowStringOn = UiTheme.preferences(this).getBoolean("stringLowViolin", true);
+        CheckBox lowStrings = checkBox(content, "弦樂低音使用小提琴（移調）", lowStringOn, enabled -> {
+            UiTheme.preferences(MainActivity.this).edit().putBoolean("stringLowViolin", enabled).apply();
+            audio.configure(MainActivity.this);
+        });
+        lowStrings.setTag("stringLowViolin");
+        int violinVolume = Math.max(50, Math.min(100, UiTheme.preferences(this).getInt("violinVolume", 75)));
+        TextView violinVolumeLabel = label("小提琴音量 " + violinVolume + "%", 14, theme.text);
+        violinVolumeLabel.setPadding(0, dp(8), 0, 0); content.addView(violinVolumeLabel);
+        SeekBar violinVolumeBar = new SeekBar(this);
+        violinVolumeBar.setTag("violinVolume"); violinVolumeBar.setMax(100); violinVolumeBar.setMin(50); violinVolumeBar.setProgress(violinVolume);
+        violinVolumeBar.setThumbTintList(ColorStateList.valueOf(theme.primary));
+        violinVolumeBar.setProgressTintList(ColorStateList.valueOf(theme.primary));
+        violinVolumeBar.setProgressBackgroundTintList(ColorStateList.valueOf(UiTheme.blend(theme.surface, theme.muted, .45f)));
+        violinVolumeBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            public void onProgressChanged(SeekBar bar, int value, boolean user) {
+                if (user) { UiTheme.preferences(MainActivity.this).edit().putInt("violinVolume", value).apply(); violinVolumeLabel.setText("小提琴音量 " + value + "%"); audio.configure(MainActivity.this); }
+            }
+            public void onStartTrackingTouch(SeekBar bar) {}
+            public void onStopTrackingTouch(SeekBar bar) {}
+        });
+        content.addView(violinVolumeBar, new LinearLayout.LayoutParams(-1, dp(44)));
         TextView status = label("", 12, theme.muted); status.setPadding(0, dp(8), 0, dp(4)); content.addView(status);
         boolean reverbOn = UiTheme.preferences(this).getBoolean("pianoReverb", false);
         int reverbMix = Math.max(0, Math.min(60, UiTheme.preferences(this).getInt("pianoReverbMix", 18)));
@@ -223,21 +257,37 @@ public final class MainActivity extends Activity {
         });
         content.addView(reverbAmount, new LinearLayout.LayoutParams(-1, dp(44)));
         Button credits = dialogButton(content, "音色來源與授權", false, () -> showCredits(false)); credits.setTag("soundCredits");
-        for (int j = 0; j < 2; j++) selectionStyle(buttons[j], PianoSound.name(PianoSound.SELECTABLE[j]), selected == PianoSound.SELECTABLE[j]);
-        status.setText(PianoSound.name(selected) + " · " + SampleBankStore.status(selected));
+        for (int j = 0; j < count; j++) selectionStyle(buttons[j], PianoSound.name(PianoSound.SELECTABLE[j]), selected == PianoSound.SELECTABLE[j]);
+        status.setText(soundStatusText(selected));
         ScrollView scroll = new ScrollView(this); scroll.addView(content);
         final boolean[] open = {true};
         final Runnable tick = new Runnable() {
             @Override public void run() {
                 if (!open[0]) return;
                 int current = PianoSound.selected(MainActivity.this);
-                status.setText(PianoSound.name(current) + " · " + SampleBankStore.status(current));
+                status.setText(soundStatusText(current));
+                updateSoundNote(violinNote, current);
                 handler.postDelayed(this, 400);
             }
         };
-        AlertDialog shown = dialog().setTitle("鋼琴音色").setView(scroll).setPositiveButton("關閉", null).create();
+        AlertDialog shown = dialog().setTitle("音色").setView(scroll).setPositiveButton("關閉", null).create();
         shown.setOnDismissListener(d -> open[0] = false);
         shown.show(); handler.post(tick);
+    }
+    private String soundStatusText(int sound) {
+        String status = sound == PianoSound.AUTO ? SampleBankStore.status() : SampleBankStore.status(sound);
+        return PianoSound.name(sound) + " · " + status;
+    }
+    private static void updateSoundNote(TextView note, int sound) {
+        if (sound == PianoSound.AUTO) {
+            note.setText("自動：依 MusicXML 聲部分配鋼琴／小提琴");
+            note.setVisibility(View.VISIBLE);
+        } else if (sound == PianoSound.VIOLIN) {
+            note.setText("小提琴：低音以鋼琴補位，短音自動跳弓");
+            note.setVisibility(View.VISIBLE);
+        } else {
+            note.setVisibility(View.GONE);
+        }
     }
     private CheckBox checkBox(LinearLayout parent, String text, boolean checked, java.util.function.Consumer<Boolean> onChange) {
         CheckBox box = new CheckBox(this); box.setText(text); box.setTextColor(theme.text); box.setButtonTintList(ColorStateList.valueOf(theme.primary));
@@ -261,7 +311,7 @@ public final class MainActivity extends Activity {
         android.text.util.Linkify.addLinks(text, android.text.util.Linkify.WEB_URLS);
         ScrollView scroll = new ScrollView(this); scroll.setBackgroundColor(theme.background); scroll.addView(text);
         AlertDialog.Builder dialog = dialog();
-        dialog.setTitle(fullLicense ? "CC BY 3.0 完整授權" : "音色來源與授權").setView(scroll).setPositiveButton("關閉", null);
+        dialog.setTitle(fullLicense ? "完整授權" : "音色來源與授權").setView(scroll).setPositiveButton("關閉", null);
         if (!fullLicense) dialog.setNeutralButton("完整授權", (d, which) -> showCredits(true)); dialog.show();
     }
     private void createUi() {
@@ -279,7 +329,7 @@ public final class MainActivity extends Activity {
         gear.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER); gear.setPadding(dp(9), dp(9), dp(9), dp(9));
         gear.setOnClickListener(v -> settings()); header.addView(gear, new LinearLayout.LayoutParams(dp(40), dp(40)));
         root.addView(header, new LinearLayout.LayoutParams(-1, dp(58)));
-        detail = label("請到音譜庫按右上角 + 匯入 MusicXML／MIDI 樂譜", 11, 0xFF70847B);
+        detail = label("請到音譜庫按右上角 + 匯入 MusicXML 樂譜", 11, 0xFF70847B);
         detail.setMaxLines(2);
         detail.setEllipsize(android.text.TextUtils.TruncateAt.END);
         detail.setPadding(0, dp(2), 0, dp(6));
@@ -306,7 +356,17 @@ public final class MainActivity extends Activity {
         info.addView(moreButton, moreParams); moreButton.setOnClickListener(v -> moreMenu());
         miniPlayer.addView(info, new LinearLayout.LayoutParams(-1, dp(34)));
         LinearLayout controls = row();
-        play = playbackButton(controls, R.drawable.ic_play, "播放", () -> { if (audio.playing) playback.pause(); else playback.play(); });
+        play = playbackButton(controls, R.drawable.ic_play, "播放", () -> {
+            if (audio.playing) {
+                playRequested = false;
+                playback.pause();
+            } else {
+                playRequested = true;
+                playRequestedAt = SystemClock.uptimeMillis();
+                playback.play();
+            }
+            refreshNow();
+        });
         stop = playbackButton(controls, R.drawable.ic_stop, "停止", this::stopPlayback);
         progress = new SeekBar(this); progress.setMax(1000); progress.setTag("playbackProgress"); progress.setContentDescription("播放進度"); styleProgress(progress);
         controls.addView(progress, new LinearLayout.LayoutParams(0, dp(38), 1));
@@ -368,7 +428,7 @@ public final class MainActivity extends Activity {
         dragging = false; dragSeconds = -1;
         piano.setScore(value);
         detail.setText(value.notes.isEmpty()
-            ? "請到音譜庫按右上角 + 匯入 MusicXML／MIDI 樂譜"
+            ? "請到音譜庫按右上角 + 匯入 MusicXML 樂譜"
             : value.notes.size() + " 個音符 · " + channels.size() + " 聲部 · " + value.timeline().size() + " 速度段 · " + value.beats + "/" + value.beatType + " · " + piano.rangeLabel());
         updateEnabled();
     }
@@ -380,15 +440,19 @@ public final class MainActivity extends Activity {
     private void voiceSettings() {
         String[] names = new String[channels.size()]; boolean[] audible = new boolean[channels.size()];
         for (int i = 0; i < channels.size(); i++) { names[i] = channels.get(i).label; audible[i] = !score.mutedVoices.contains(channels.get(i).key); }
-        dialog().setTitle("聲部（勾選＝播放）").setMultiChoiceItems(names, audible, (d, which, enabled) -> {
+        AlertDialog shown = dialog().setTitle("聲部（勾選＝播放）").setMultiChoiceItems(names, audible, (d, which, enabled) -> {
             String key = channels.get(which).key; if (enabled) score.mutedVoices.remove(key); else score.mutedVoices.add(key);
             audio.mute(which, !enabled); save(score);
-        }).setPositiveButton("完成", null).show();
+        }).setPositiveButton("完成", null).create();
+        shown.show();
+        shown.getListView().setMinimumHeight(Math.min(dp(420), Math.max(dp(240), getResources().getDisplayMetrics().heightPixels * 2 / 5)));
     }
     private void stopPlayback() {
+        playRequested = false;
         audio.stop();
         dragging = false; dragSeconds = -1;
         progress.setProgress(0); updateTime(0); updatePlaybackButtons();
+        refreshNow();
     }
     private void save(Score value) {
         String id = currentId; if (id == null) return;
@@ -457,38 +521,12 @@ public final class MainActivity extends Activity {
     }
     private AlertDialog.Builder dialog() { return new AlertDialog.Builder(new ContextThemeWrapper(this, theme.dark ? R.style.AppTheme_Dark : R.style.AppTheme)); }
     @Override public void onConfigurationChanged(Configuration configuration) { super.onConfigurationChanged(configuration); if (mainRoot != null) applyTheme(); }
-    private void importScore() {
-        audio.pause();
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT); intent.setType("*/*"); intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{
-            "application/vnd.recordare.musicxml+xml", "application/vnd.recordare.musicxml", "application/xml", "text/xml",
-            "application/zip", "application/json", "text/plain", "application/octet-stream",
-            "audio/midi", "audio/x-midi", "application/x-midi", "audio/mid"
-        });
-        startActivityForResult(intent, IMPORT);
-    }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
-        if (request == LIBRARY) {
-            if (result == RESULT_OK && data != null && data.getBooleanExtra("import", false)) { reloadLibrary(false); importScore(); }
-            else { String id = data == null ? null : data.getStringExtra("playId"); if (id != null) library.select(id); reloadLibrary(id != null); }
-            return;
-        }
-        if (result != RESULT_OK || data == null || data.getData() == null) return;
-        Uri uri = data.getData(); setBusy(true);
-        if (request == IMPORT) {
-            files.execute(() -> {
-                try (InputStream input = getContentResolver().openInputStream(uri)) {
-                    if (input == null) throw new java.io.IOException("無法開啟檔案");
-                    Score imported = ScoreImport.read(input);
-                    if (imported.notes.isEmpty()) throw new java.io.IOException("此樂譜沒有可播放的音符");
-                    if (!imported.features.contains("MIDI") && imported.partNames.size() > 1) imported.warnings.add("此樂譜包含多個樂器聲部，將全部以鋼琴音色播放");
-                    PlaybackProgram compiled = new PlaybackProgram(imported);
-                    String id = library.add(imported, "匯入");
-                    runOnUiThread(() -> { if (isDestroyed()) return; currentId = id; useScore(imported, compiled); setBusy(false); message("匯入摘要", imported.importSummary()); });
-                } catch (Exception e) { runOnUiThread(() -> { setBusy(false); message("匯入失敗", e.getMessage()); }); }
-            });
-        } else setBusy(false);
+        if (request != LIBRARY) return;
+        String id = data == null ? null : data.getStringExtra("playId");
+        if (id != null) library.select(id);
+        reloadLibrary(id != null);
     }
     private void updateTime(double sourceSeconds) {
         String text = formatTime(sourceSeconds / speeds[speedIndex]) + " / " + formatTime(durationSeconds / speeds[speedIndex]);
@@ -517,8 +555,8 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume();
-        audio.configure(this); syncPlayback(); applyTheme(); resumed = true; handler.post(refresh);
-        if (pendingLibraryPlay) { pendingLibraryPlay = false; playback.play(); }
+        audio.configure(this); syncPlayback(); applyTheme(); resumed = true; refreshNow();
+        if (pendingLibraryPlay) { pendingLibraryPlay = false; playRequested = true; playRequestedAt = SystemClock.uptimeMillis(); playback.play(); }
     }
     @Override protected void onPause() {
         resumed = false; keepScreenOn(false); handler.removeCallbacks(refresh); super.onPause();

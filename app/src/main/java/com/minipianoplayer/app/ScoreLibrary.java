@@ -13,7 +13,7 @@ import java.util.UUID;
 
 final class ScoreLibrary {
     static final class Entry {
-        String id, title, source;
+        String id, title, source, composer, instruments;
         long created;
         double seconds;
     }
@@ -46,6 +46,7 @@ final class ScoreLibrary {
         if (!directory.isDirectory() && !directory.mkdirs()) throw new java.io.IOException("無法建立音譜庫");
         storage(id).save(score);
         JSONObject meta = new JSONObject().put("title", score.title).put("source", source)
+            .put("composer", score.composer).put("instruments", score.instrumentSummary())
             .put("created", System.currentTimeMillis()).put("updated", System.currentTimeMillis()).put("seconds", score.seconds(score.length()));
         writeMeta(id, meta);
     }
@@ -57,6 +58,18 @@ final class ScoreLibrary {
         try { output.write(meta.toString().getBytes(StandardCharsets.UTF_8)); file.finishWrite(output); }
         catch (Exception e) { file.failWrite(output); throw e; }
     }
+    private void fillSummary(String id, JSONObject meta) {
+        if (meta.has("composer") && meta.has("instruments")) return;
+        try {
+            Score score = storage(id).load();
+            if (score == null) return;
+            String composer = score.composer;
+            if (composer.isEmpty() && score.originalXml != null) composer = MusicXml.composer(score.originalXml);
+            meta.put("composer", composer);
+            meta.put("instruments", score.instrumentSummary());
+            writeMeta(id, meta);
+        } catch (Exception ignored) { }
+    }
     synchronized List<Entry> list() throws Exception {
         List<Entry> entries = new ArrayList<>(); File[] files = directory.listFiles();
         if (files == null) return entries;
@@ -64,8 +77,9 @@ final class ScoreLibrary {
             if (!file.getName().endsWith(".meta")) continue;
             String id = file.getName().replaceFirst("\\.meta$", "");
             try {
-                JSONObject meta = metadata(id); Entry entry = new Entry(); entry.id = id;
+                JSONObject meta = metadata(id); fillSummary(id, meta); Entry entry = new Entry(); entry.id = id;
                 entry.title = meta.getString("title"); entry.source = meta.getString("source");
+                entry.composer = meta.optString("composer", ""); entry.instruments = meta.optString("instruments", "");
                 entry.created = meta.getLong("created"); entry.seconds = meta.getDouble("seconds"); entries.add(entry);
             } catch (Exception e) { Entry entry = new Entry(); entry.id = id; entry.title = "無法讀取的音譜"; entry.source = "資料損壞"; entries.add(entry); }
         }
@@ -73,10 +87,13 @@ final class ScoreLibrary {
     }
     synchronized Score load(String id) throws Exception {
         Score score = storage(id).load(); if (score == null) throw new java.io.IOException("找不到音譜");
-        score.title = metadata(id).getString("title"); return score;
+        JSONObject meta = metadata(id); score.title = meta.getString("title");
+        if (score.composer.isEmpty()) score.composer = meta.optString("composer", "");
+        return score;
     }
     synchronized void update(String id, Score score) throws Exception {
         JSONObject meta = metadata(id); storage(id).save(score);
+        meta.put("composer", score.composer).put("instruments", score.instrumentSummary());
         meta.put("updated", System.currentTimeMillis()); writeMeta(id, meta);
     }
     synchronized void rename(String id, String title) throws Exception {
