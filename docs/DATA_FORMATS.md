@@ -16,6 +16,7 @@
 | 欄位 | 型別 | 說明 |
 |---|---|---|
 | `title` | string | 顯示名稱 |
+| `movementTitle` | string | MusicXML `<movement-title>`；舊項目會自動補寫 |
 | `source` | string | 匯入來源，目前為「匯入」 |
 | `composer` | string | 作曲者（舊項目會自動補寫） |
 | `instruments` | string | 聲部樂器名稱，去重後以「、」串接 |
@@ -28,10 +29,11 @@
 | 欄位 | 型別 | 說明 |
 |---|---|---|
 | `title` | string | 曲名 |
+| `movementTitle` | string | MusicXML `<movement-title>`；舊檔缺少時為空字串 |
 | `composer` | string | 作曲者（MusicXML `creator type="composer"`） |
 | `bpm` | int | 起始 BPM |
 | `beats` / `beatType` | int | 起始拍號 |
-| `schemaVersion` | int | 目前為 5 |
+| `schemaVersion` | int | 目前為 6 |
 | `endTick` | long | 演奏結尾 tick |
 | `originalMeasureCount` | int | 原譜小節數 |
 | `originalXml` | string | 原始 MusicXML（若有） |

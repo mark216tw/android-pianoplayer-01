@@ -74,6 +74,7 @@ final class MusicXmlReader {
         if (!root.getTagName().equals("score-partwise")) throw new IOException("目前支援 score-partwise MusicXML");
         Score score = new Score(); score.originalXml = original;
         score.title = text(child(root, "work"), "work-title", text(root, "movement-title", "匯入樂曲"));
+        score.movementTitle = movementTitle(root);
         score.composer = composer(root);
         Element partList = child(root, "part-list");
         for (Element part : children(partList, "score-part")) {
@@ -454,6 +455,9 @@ final class MusicXmlReader {
             }
         }
         return null;
+    }
+    static String movementTitle(Element root) {
+        return text(root, "movement-title", "");
     }
     static String composer(Element root) {
         Element identification = child(root, "identification");

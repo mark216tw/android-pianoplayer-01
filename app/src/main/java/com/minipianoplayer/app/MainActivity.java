@@ -43,12 +43,13 @@ public final class MainActivity extends Activity {
     private Score score = new Score();
     private UiTheme theme;
     private LinearLayout mainRoot, miniPlayer, stageCard;
-    private TextView title, detail, time;
+    private TextView title, subtitle, detail, time;
     private TextView soundStatus;
     private String lastSoundStatus = "";
     private String lastScoreDetail = "";
     private String lastTime = "";
     private String shownTitle = "";
+    private String shownSubtitle = "";
     private boolean lastPlaying, lastIconPlaying;
     private long lastDrawPosition = Long.MIN_VALUE, lastDetailUpdate;
     private Button speedButton;
@@ -353,16 +354,25 @@ public final class MainActivity extends Activity {
         miniPlayer = new LinearLayout(this); miniPlayer.setOrientation(LinearLayout.VERTICAL);
         miniPlayer.setBackground(UiTheme.rounded(theme.surface, dp(16)));
         miniPlayer.setPadding(dp(10), dp(7), dp(10), dp(8));
-        LinearLayout info = row();
+        LinearLayout info = new LinearLayout(this); info.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout titleRow = row();
         title = label("尚未匯入樂譜", 14, 0xFF224B40); title.setSingleLine(true); title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        info.addView(title, new LinearLayout.LayoutParams(0, -1, 1));
-        time = label("0:00 / 0:00", 12, 0xFF224B40); time.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        info.addView(time);
+        titleRow.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
         moreButton = new ImageButton(this); moreButton.setImageResource(R.drawable.ic_more); moreButton.setContentDescription("更多選項"); moreButton.setTag("moreMenu");
         moreButton.setPadding(dp(7), dp(7), dp(7), dp(7));
         LinearLayout.LayoutParams moreParams = new LinearLayout.LayoutParams(dp(32), dp(32)); moreParams.setMargins(dp(4), 0, 0, 0);
-        info.addView(moreButton, moreParams); moreButton.setOnClickListener(v -> moreMenu());
-        miniPlayer.addView(info, new LinearLayout.LayoutParams(-1, dp(34)));
+        titleRow.addView(moreButton, moreParams); moreButton.setOnClickListener(v -> moreMenu());
+        info.addView(titleRow, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout subtitleRow = row();
+        subtitle = label("", 11, 0xFF70847B); subtitle.setSingleLine(true); subtitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        subtitle.setTag("muted"); subtitle.setVisibility(View.INVISIBLE);
+        subtitleRow.addView(subtitle, new LinearLayout.LayoutParams(0, -2, 1));
+        time = label("0:00 / 0:00", 12, 0xFF224B40); time.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        LinearLayout.LayoutParams timeParams = new LinearLayout.LayoutParams(-2, -2); timeParams.setMargins(dp(8), 0, 0, 0);
+        subtitleRow.addView(time, timeParams);
+        info.addView(subtitleRow, new LinearLayout.LayoutParams(-1, -2));
+        info.setMinimumHeight(dp(34));
+        miniPlayer.addView(info, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout controls = row();
         play = playbackButton(controls, R.drawable.ic_play, "播放", 2, () -> {
             if (audio.playing) {
@@ -433,6 +443,7 @@ public final class MainActivity extends Activity {
     private void useScore(Score value, PlaybackProgram compiled) { playback.load(currentId, value, compiled); showScore(value); }
     private void showScore(Score value) {
         score = value; scoreLength = value.length(); durationSeconds = score.seconds(scoreLength); channels = score.channels(); shownTitle = value.title; title.setText(value.title); lastScoreDetail = "";
+        shownSubtitle = value.movementSubtitle(); subtitle.setText(shownSubtitle); subtitle.setVisibility(shownSubtitle.isEmpty() ? View.INVISIBLE : View.VISIBLE);
         dragging = false; dragSeconds = -1;
         piano.setScore(value);
         detail.setText(value.notes.isEmpty()
@@ -444,6 +455,11 @@ public final class MainActivity extends Activity {
         if (playback.score == null) return;
         if (score != playback.score) { currentId = playback.id; showScore(playback.score); }
         else if (!score.title.equals(shownTitle)) { shownTitle = score.title; title.setText(score.title); }
+        String movement = score.movementSubtitle();
+        if (!movement.equals(shownSubtitle)) {
+            shownSubtitle = movement; subtitle.setText(movement);
+            subtitle.setVisibility(movement.isEmpty() ? View.INVISIBLE : View.VISIBLE);
+        }
     }
     private void voiceSettings() {
         String[] names = new String[channels.size()]; boolean[] audible = new boolean[channels.size()];
@@ -517,7 +533,7 @@ public final class MainActivity extends Activity {
                 PlaybackProgram compiled = reload ? new PlaybackProgram(selected) : null;
                 runOnUiThread(() -> { if (isDestroyed()) return;
                     if (reload) { currentId = id; useScore(selected, compiled); }
-                    else if (playback.score != null) { playback.score.title = selected.title; syncPlayback(); }
+                    else if (playback.score != null) { playback.score.title = selected.title; playback.score.movementTitle = selected.movementTitle; syncPlayback(); }
                     setBusy(false); if (playNow && !selected.notes.isEmpty()) { if (resumed) playback.play(); else pendingLibraryPlay = true; }
                 });
             } catch (Exception e) { runOnUiThread(() -> { if (isDestroyed()) return; currentId = null; useScore(emptyScore()); setBusy(false); message("無法載入樂譜", e.getMessage()); }); }

@@ -12,6 +12,7 @@ import java.util.LinkedHashSet;
 public final class Score {
     public static final int PPQ = 480;
     public String title = "未命名樂曲";
+    public String movementTitle = "";
     public String composer = "";
     public int bpm = 120, beats = 4, beatType = 4;
     public final List<Note> notes = new ArrayList<>();
@@ -119,7 +120,7 @@ public final class Score {
     public double seconds(long tick) { return tempos.isEmpty() ? tick * 60.0 / (bpm * PPQ) : timeline().seconds(tick); }
     public long tick(double seconds) { return Math.round(tempos.isEmpty() ? seconds * bpm * PPQ / 60.0 : timeline().tick(seconds)); }
     public Score copy() {
-        Score result = new Score(); result.title = title; result.composer = composer; result.bpm = bpm; result.beats = beats; result.beatType = beatType;
+        Score result = new Score(); result.title = title; result.movementTitle = movementTitle; result.composer = composer; result.bpm = bpm; result.beats = beats; result.beatType = beatType;
         result.notes.addAll(notes); result.pedals.addAll(pedals); result.tempos.addAll(tempos); result.measures.addAll(measures);
         result.partNames.putAll(partNames); result.partSounds.putAll(partSounds); result.partInstruments.putAll(partInstruments);
         result.lowStringParts.addAll(lowStringParts);
@@ -131,6 +132,10 @@ public final class Score {
         for (String name : partInstruments.values()) if (name != null && !name.isEmpty()) names.add(name);
         return String.join("、", names);
     }
+    public String movementSubtitle() {
+        String value = movementTitle == null ? "" : movementTitle.trim();
+        return value.isEmpty() || value.equals(title == null ? "" : title.trim()) ? "" : value;
+    }
     public String importSummary() {
         StringBuilder instruments = new StringBuilder();
         for (Map.Entry<String, Integer> entry : partSounds.entrySet()) {
@@ -138,7 +143,8 @@ public final class Score {
             instruments.append(partNames.getOrDefault(entry.getKey(), entry.getKey()))
                 .append(" → ").append(partInstruments.getOrDefault(entry.getKey(), PianoSound.name(entry.getValue())));
         }
-        return title + "\n" + notes.size() + " 個音符 · " + channels().size() + " 個聲部\n"
+        String subtitle = movementSubtitle();
+        return title + (subtitle.isEmpty() ? "" : "\n" + subtitle) + "\n" + notes.size() + " 個音符 · " + channels().size() + " 個聲部\n"
             + (tempos.isEmpty() ? 1 : timeline().size()) + " 個速度段 · " + measures.size() + " 個小節（原譜 " + originalMeasureCount + "）\n"
             + (instruments.length() == 0 ? "" : "音色：" + instruments + "\n")
             + (features.isEmpty() ? "基本音符、和弦與休止符" : "已處理：" + String.join("、", features))

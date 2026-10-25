@@ -68,6 +68,10 @@ public final class MusicXml {
         try { return MusicXmlReader.composer(document(xml.getBytes(StandardCharsets.UTF_8)).getDocumentElement()); }
         catch (Exception e) { return ""; }
     }
+    public static String movementTitle(String xml) {
+        try { return MusicXmlReader.movementTitle(document(xml.getBytes(StandardCharsets.UTF_8)).getDocumentElement()); }
+        catch (Exception e) { return ""; }
+    }
     private static byte[] unwrapJson(byte[] bytes) throws IOException {
         String content = new String(bytes, StandardCharsets.UTF_8).trim();
         if (content.startsWith("\uFEFF")) content = content.substring(1).trim();

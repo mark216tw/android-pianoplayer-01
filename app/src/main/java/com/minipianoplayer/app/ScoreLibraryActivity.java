@@ -223,23 +223,33 @@ public final class ScoreLibraryActivity extends Activity {
             title.setContentDescription("樂曲名稱：" + entry.title + "，點擊查看匯入摘要");
             title.setOnClickListener(v -> showSummary(entry));
             card.addView(title);
+            String movementTitle = entry.movementTitle == null ? "" : entry.movementTitle.trim();
+            if (!movementTitle.isEmpty() && !movementTitle.equals(entry.title)) {
+                TextView subtitle = text(movementTitle, 12, theme.muted);
+                subtitle.setSingleLine(true); subtitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                subtitle.setTag("scoreMovementTitle_" + entry.id);
+                subtitle.setPadding(0, dp(1), 0, 0);
+                subtitle.setOnClickListener(v -> showSummary(entry));
+                card.addView(subtitle);
+            }
             LinearLayout summaryRow = new LinearLayout(this); summaryRow.setGravity(Gravity.CENTER_VERTICAL);
             TextView composer = text(entry.composer == null ? "" : entry.composer.trim(), 12, theme.muted);
             composer.setSingleLine(true); composer.setEllipsize(android.text.TextUtils.TruncateAt.END);
             summaryRow.addView(composer, new LinearLayout.LayoutParams(0, -1, 1));
-            TextView duration = text(formatDuration(entry.seconds), 12, theme.muted);
-            summaryRow.addView(duration);
-            summaryRow.setPadding(0, dp(3), 0, 0);
+            summaryRow.setPadding(0, dp(3), 0, dp(2));
             card.addView(summaryRow);
+            LinearLayout detailsRow = new LinearLayout(this); detailsRow.setGravity(Gravity.CENTER_VERTICAL);
             String instruments = entry.instruments == null ? "" : entry.instruments.trim();
-            if (!instruments.isEmpty()) {
-                TextView instrumentView = text(instruments, 12, theme.muted);
-                instrumentView.setSingleLine(true); instrumentView.setEllipsize(android.text.TextUtils.TruncateAt.END);
-                instrumentView.setPadding(0, dp(2), 0, dp(8));
-                card.addView(instrumentView);
-            } else {
-                summaryRow.setPadding(0, dp(3), 0, dp(8));
-            }
+            TextView instrumentView = text(instruments, 12, theme.muted);
+            instrumentView.setSingleLine(true); instrumentView.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            instrumentView.setTag("scoreInstruments_" + entry.id);
+            detailsRow.addView(instrumentView, new LinearLayout.LayoutParams(0, -2, 1));
+            TextView duration = text(formatDuration(entry.seconds), 12, theme.muted);
+            duration.setTag("scoreDuration_" + entry.id);
+            LinearLayout.LayoutParams durationParams = new LinearLayout.LayoutParams(-2, -2); durationParams.setMargins(dp(8), 0, 0, 0);
+            detailsRow.addView(duration, durationParams);
+            detailsRow.setPadding(0, dp(2), 0, dp(8));
+            card.addView(detailsRow);
             LinearLayout actions = new LinearLayout(this); actions.setGravity(Gravity.CENTER_VERTICAL);
             Button play = cardButton("▶ 播放", theme.text, () -> play(entry));
             play.setTag("play_" + entry.id);

@@ -17,9 +17,9 @@ final class ScoreStorage {
         synchronized (IO_LOCK) { saveLocked(score); }
     }
     private void saveLocked(Score score) throws Exception {
-        JSONObject root = new JSONObject(); root.put("title", score.title); root.put("composer", score.composer); root.put("bpm", score.bpm);
+        JSONObject root = new JSONObject(); root.put("title", score.title); root.put("movementTitle", score.movementTitle == null ? "" : score.movementTitle); root.put("composer", score.composer); root.put("bpm", score.bpm);
         root.put("beats", score.beats); root.put("beatType", score.beatType);
-        root.put("schemaVersion", 5); root.put("endTick", score.endTick); root.put("originalMeasureCount", score.originalMeasureCount);
+        root.put("schemaVersion", 6); root.put("endTick", score.endTick); root.put("originalMeasureCount", score.originalMeasureCount);
         if (score.originalXml != null) root.put("originalXml", score.originalXml);
         JSONArray notes = new JSONArray(), pedals = new JSONArray();
         for (Score.Note n : score.notes) notes.put(new JSONArray().put(n.pitch).put(n.start).put(n.duration).put(n.velocity).put(n.part).put(n.voice).put(n.staff).put(n.staffMask).put(n.articulation));
@@ -42,7 +42,7 @@ final class ScoreStorage {
     private Score loadLocked() throws Exception {
         if (!file.getBaseFile().exists()) return null;
         JSONObject root = new JSONObject(new String(file.readFully(), StandardCharsets.UTF_8));
-        Score score = new Score(); score.title = root.getString("title"); score.composer = root.optString("composer", ""); score.bpm = root.getInt("bpm");
+        Score score = new Score(); score.title = root.getString("title"); score.movementTitle = root.optString("movementTitle", ""); score.composer = root.optString("composer", ""); score.bpm = root.getInt("bpm");
         score.beats = root.getInt("beats"); score.beatType = root.getInt("beatType");
         JSONArray notes = root.getJSONArray("notes"), pedals = root.getJSONArray("pedals");
         for (int i = 0; i < notes.length(); i++) {

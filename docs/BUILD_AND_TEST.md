@@ -85,6 +85,7 @@ adb install -r "app/build/outputs/apk/debug/app-debug.apk"
 | SampleBankLoudnessTest | 逐鍵與力度層響度、accent 跨層音量、gain 上限 |
 | ReverbTest／LimiterTest／DamperTest | 音訊處理 |
 | ThemeSettingsTest | 顯示模式、主題色、Hue、音色、小提琴音量與弦樂低音設定 |
+| MovementTitleTest | `<movement-title>` 解析、摘要、儲存、音譜庫與三處副標題顯示 |
 
 ## 5. 音色響度校正
 
@@ -108,7 +109,8 @@ python tools/prepare_violin.py --cache <cache>
 - [ ] 可與舊版 mini 鋼琴並存（不同套件）
 - [ ] 匯入 `.musicxml`、`.xml`、`.mxl`、JSON 包裝
 - [ ] 音譜庫匯入後停留、只加入清單、可再按 ▶ 播放
-- [ ] 音譜庫每首顯示作曲者與聲部樂器，且沒有欄位標題
+- [ ] 音譜庫每首顯示作曲者、聲部樂器與時長（時長在樂器列右側），且沒有欄位標題
+- [ ] MusicXML 有 `<movement-title>` 時，播放器、音譜庫卡片與匯入摘要都在樂曲標題下方顯示副標題
 - [ ] 舊音譜開啟後會補上作曲者與樂器資料
 - [ ] 非 MusicXML 顯示友善錯誤
 - [ ] 卷軸由右往左移動，與鍵盤亮鍵同步
