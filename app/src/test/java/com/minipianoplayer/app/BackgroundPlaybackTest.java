@@ -52,7 +52,6 @@ public class BackgroundPlaybackTest {
                 service.get().onStartCommand(new Intent().setAction(PlaybackService.PLAY), 0, 1); commands(playback.audio);
                 assertTrue(playback.audio.playing);
                 assertNotNull(Shadows.shadowOf(service.get()).getLastForegroundNotification());
-                playback.rename("track", "新名稱"); assertEquals("新名稱", playback.score.title);
                 playback.deleted("other"); commands(playback.audio); assertTrue(playback.audio.playing);
                 service.get().onStartCommand(new Intent().setAction(PlaybackService.PAUSE), 0, 2); commands(playback.audio); assertFalse(playback.audio.playing);
                 service.get().onStartCommand(new Intent().setAction(PlaybackService.PLAY), 0, 3); commands(playback.audio); assertTrue(playback.audio.playing);

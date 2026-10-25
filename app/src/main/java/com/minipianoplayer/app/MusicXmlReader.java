@@ -16,18 +16,31 @@ import java.util.Locale;
 
 /** Parse authored events first; apply expression, expand the route, then join ties. */
 final class MusicXmlReader {
+    private static final long GRACE_WINDOW = 96;
     private static class Point {
         final int measure; final long local;
         long tick;
         Point(int measure, long local) { this.measure = measure; this.local = local; }
     }
     private static final class RawNote extends Point {
-        final int pitch, staff; final String voice; final long duration;
-        final boolean tieStart, tieStop; final Integer explicit; final int accent;
+        final int pitch, staff, articulation; final String voice; final long duration;
+        final boolean tieStart, tieStop, grace; final Integer explicit; final int accent;
+        final RawNote graceTarget;
         int velocity;
-        RawNote(int m, long local, int pitch, long duration, String voice, int staff, boolean start, boolean stop, Integer explicit, int accent) {
+        RawNote(int m, long local, int pitch, long duration, String voice, int staff, boolean start, boolean stop, Integer explicit, int accent, int articulation) {
+            this(m, local, pitch, duration, voice, staff, start, stop, explicit, accent, articulation, false, null);
+        }
+        RawNote(int m, long local, int pitch, long duration, String voice, int staff, boolean start, boolean stop, Integer explicit, int accent, int articulation, boolean grace, RawNote graceTarget) {
             super(m, local); this.pitch = pitch; this.duration = duration; this.voice = voice; this.staff = staff;
-            tieStart = start; tieStop = stop; this.explicit = explicit; this.accent = accent;
+            tieStart = start; tieStop = stop; this.explicit = explicit; this.accent = accent; this.articulation = articulation;
+            this.grace = grace; this.graceTarget = graceTarget;
+        }
+    }
+    private static final class RawGrace {
+        final int pitch, staff, articulation, accent; final String voice; final Integer explicit;
+        RawGrace(int pitch, String voice, int staff, Integer explicit, int accent, int articulation) {
+            this.pitch = pitch; this.voice = voice; this.staff = staff; this.explicit = explicit;
+            this.accent = accent; this.articulation = articulation;
         }
     }
     private static final class Dynamic extends Point {
@@ -53,6 +66,7 @@ final class MusicXmlReader {
         final List<Dynamic> dynamics = new ArrayList<>(); final List<Wedge> wedges = new ArrayList<>();
         final List<RawPedal> pedals = new ArrayList<>(); final List<RawTempo> tempos = new ArrayList<>();
         final Map<String, Wedge> openWedges = new HashMap<>();
+        final Map<String, List<RawGrace>> pendingGraces = new HashMap<>();
         Part(String id) { this.id = id; }
     }
     static Score read(Document document, String original) throws Exception {
@@ -128,14 +142,15 @@ final class MusicXmlReader {
                         case "direction": direction(score, part, bars, m, item, cursor, divisions); break;
                         case "sound": sound(score, part, bar, m, Math.round(cursor + decimal(text(item, "offset", "0"), 0) * Score.PPQ / divisions), item, 0, ""); break;
                         case "note": {
-                            if (child(item, "grace") != null) { warn(score, "裝飾音暫略過"); break; }
-                            double duration = duration(item, divisions); boolean chord = child(item, "chord") != null;
-                            double start = chord ? chordStart : cursor;
-                            if (!chord) { chordStart = cursor; cursor += duration; }
-                            maximum = Math.max(maximum, start + duration);
+                            boolean grace = child(item, "grace") != null;
+                            double duration = grace ? 0 : duration(item, divisions);
+                            boolean chord = child(item, "chord") != null;
+                            double start = grace ? cursor : chord ? chordStart : cursor;
+                            if (!grace && !chord) { chordStart = cursor; cursor += duration; }
+                            if (!grace) maximum = Math.max(maximum, start + duration);
                             Element pitch = child(item, "pitch");
                             if (pitch == null) { if (child(item, "unpitched") != null) warn(score, "無固定音高的打擊樂已略過"); break; }
-                            if (duration <= 0) throw new IOException("第 " + bar.number + " 小節音符缺少有效 duration");
+                            if (!grace && duration <= 0) throw new IOException("第 " + bar.number + " 小節音符缺少有效 duration");
                             int staff = integer(text(item, "staff", "1"), 1); if (staff < 1 || staff > 32) throw new IOException("不支援的 staff：" + staff);
                             String voice = text(item, "voice", "1");
                             String step = text(pitch, "step", "C");
@@ -149,12 +164,24 @@ final class MusicXmlReader {
                             for (Element tie : ties) { String type = tie.getAttribute("type"); tieStart |= type.equals("start") || type.equals("continue"); tieStop |= type.equals("stop") || type.equals("continue"); }
                             Integer explicit = item.hasAttribute("dynamics") ? midiVelocity(decimal(item.getAttribute("dynamics"), 100)) : null;
                             if (explicit != null) score.features.add("力度");
-                            Element notations = child(item, "notations"), articulation = child(notations, "articulations");
-                            int accent = child(articulation, "strong-accent") != null ? 20 : child(articulation, "accent") != null ? 12 : 0;
+                            Element notations = child(item, "notations"), articulations = child(notations, "articulations");
+                            int accent = child(articulations, "strong-accent") != null ? 20 : child(articulations, "accent") != null ? 12 : 0;
                             if (accent > 0) score.features.add("重音");
                             if (child(notations, "arpeggiate") != null) warn(score, "琶音記號目前以同時和弦播放");
-                            if (child(articulation, "staccato") != null || child(articulation, "tenuto") != null) warn(score, "斷奏／持音記號目前保留原音符時值");
-                            notes.add(new RawNote(m, Math.round(start), midi, Math.max(1, Math.round(start + duration) - Math.round(start)), voice, staff, tieStart, tieStop, explicit, accent));
+                            int articulation = Score.Note.NORMAL;
+                            if (child(articulations, "staccato") != null || child(articulations, "staccatissimo") != null) { articulation = Score.Note.STACCATO; score.features.add("斷奏"); }
+                            else if (child(articulations, "tenuto") != null) { articulation = Score.Note.TENUTO; score.features.add("持音"); }
+                            if (grace) {
+                                String key = staff + "\u001f" + voice;
+                                part.pendingGraces.computeIfAbsent(key, ignored -> new ArrayList<>())
+                                    .add(new RawGrace(midi, voice, staff, explicit, accent, articulation));
+                                score.features.add("裝飾音");
+                                if (++noteCount > 50000) throw new IOException("原譜超過 50,000 音符");
+                                break;
+                            }
+                            RawNote note = new RawNote(m, Math.round(start), midi, Math.max(1, Math.round(start + duration) - Math.round(start)), voice, staff, tieStart, tieStop, explicit, accent, articulation);
+                            if (!chord) attachGraces(notes, part.pendingGraces.remove(staff + "\u001f" + voice), m, note.local, note);
+                            notes.add(note);
                             if (++noteCount > 50000) throw new IOException("原譜超過 50,000 音符");
                             break;
                         }
@@ -167,6 +194,7 @@ final class MusicXmlReader {
                 bar.length = Math.max(bar.length, length);
             }
             if (!part.openWedges.isEmpty()) warn(score, "部分漸強／漸弱缺少終點，未套用該區間");
+            if (!part.pendingGraces.isEmpty()) warn(score, "部分裝飾音缺少可銜接的主音，已略過");
         }
         long[] starts = new long[count + 1];
         for (int i = 0; i < count; i++) {
@@ -185,7 +213,11 @@ final class MusicXmlReader {
                 if (previous == null || part.id.equals(tempoOwners.get(tempo.tick))) { tempos.put(tempo.tick, tempo.bpm); tempoOwners.put(tempo.tick, part.id); }
                 else if (Math.abs(previous - tempo.bpm) > .001) warn(score, "不同樂器的同時速度標記衝突，採用第一個樂器速度值");
             }
-            for (List<RawNote> notes : part.notes) for (RawNote note : notes) note.velocity = velocity(part, note);
+            for (List<RawNote> notes : part.notes) for (RawNote note : notes) if (!note.grace) note.velocity = velocity(part, note);
+            for (List<RawNote> notes : part.notes) for (RawNote note : notes) if (note.grace) {
+                note.velocity = note.explicit != null ? clamp(note.explicit + note.accent)
+                    : note.graceTarget != null ? note.graceTarget.velocity : velocity(part, note);
+            }
         }
         score.bpm = tempos.containsKey(0L) ? (int) Math.round(tempos.get(0L)) : 120;
         tempos.putIfAbsent(0L, (double) score.bpm);
@@ -221,12 +253,13 @@ final class MusicXmlReader {
                     Score.Note note;
                     int noteIndex;
                     if (previous != null) {
-                        note = new Score.Note(raw.pitch, previous.start, previous.duration + raw.duration, previous.velocity, part.id, raw.voice, previous.staff, previous.staffMask | (1 << (raw.staff - 1)));
+                        int articulation = previous.articulation == Score.Note.TENUTO ? Score.Note.TENUTO : Score.Note.NORMAL;
+                        note = new Score.Note(raw.pitch, previous.start, previous.duration + raw.duration, previous.velocity, part.id, raw.voice, previous.staff, previous.staffMask | (1 << (raw.staff - 1)), articulation);
                         score.notes.set(previousIndex, note);
                         noteIndex = previousIndex;
                         score.features.add(previous.staff != raw.staff ? "跨譜表延音線" : "延音線");
                     } else {
-                        note = new Score.Note(raw.pitch, tick, raw.duration, raw.velocity, part.id, raw.voice, raw.staff);
+                        note = new Score.Note(raw.pitch, tick, raw.duration, raw.velocity, part.id, raw.voice, raw.staff, 1 << (raw.staff - 1), raw.articulation);
                         noteIndex = score.notes.size();
                         score.notes.add(note);
                     }
@@ -249,6 +282,18 @@ final class MusicXmlReader {
         score.sort();
         if (score.seconds(score.length()) > 7200) throw new IOException("演奏長度超過兩小時，請檢查反覆與速度");
         return score;
+    }
+    private static void attachGraces(List<RawNote> notes, List<RawGrace> graces, int measure, long mainStart, RawNote main) {
+        if (graces == null || graces.isEmpty()) return;
+        long window = GRACE_WINDOW;
+        long begin = mainStart - window;
+        for (int i = 0; i < graces.size(); i++) {
+            long start = begin + window * i / graces.size();
+            long end = begin + window * (i + 1) / graces.size();
+            RawGrace grace = graces.get(i);
+            notes.add(new RawNote(measure, start, grace.pitch, Math.max(1, end - start),
+                grace.voice, grace.staff, false, false, grace.explicit, grace.accent, grace.articulation, true, main));
+        }
     }
     private static void direction(Score score, Part part, List<PlaybackRoute.Bar> bars, int m, Element direction, double cursor, int divisions) throws IOException {
         long tick = Math.round(cursor + decimal(text(direction, "offset", "0"), 0) * Score.PPQ / divisions);

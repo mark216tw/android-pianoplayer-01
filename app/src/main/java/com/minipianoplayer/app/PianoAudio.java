@@ -21,6 +21,7 @@ import java.util.concurrent.atomic.AtomicLongArray;
 
 final class PianoAudio implements AutoCloseable {
     private static final int VOICES = 72, MAX_ACTIVE = 64, TABLE_SIZE = 2048;
+    private static final double STEAL_FADE_SECONDS = .006;
     private final float[] sine = new float[TABLE_SIZE];
     private final Voice[] voices = new Voice[VOICES];
     private final LinkedBlockingQueue<Runnable> commands = new LinkedBlockingQueue<>();
@@ -43,6 +44,8 @@ final class PianoAudio implements AutoCloseable {
     volatile boolean playing;
     volatile double position;
     volatile String error;
+    private volatile int bufferFrames, underruns;
+    private long lastUnderrunCheck;
     private volatile long keysLow, keysHigh;
     private final AtomicLongArray keyAttackTimes = new AtomicLongArray(128);
     private PlaybackProgram program;
@@ -69,8 +72,8 @@ final class PianoAudio implements AutoCloseable {
         TimbreBalance.prepare();
         this.context = context.getApplicationContext();
         manager = (AudioManager) this.context.getSystemService(Context.AUDIO_SERVICE);
-        rate = 48000;
-        frames = Math.max(64, Math.min(512, integer(manager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER), 192)));
+        rate = outputRate(integer(manager == null ? null : manager.getProperty(AudioManager.PROPERTY_OUTPUT_SAMPLE_RATE), 0));
+        frames = Math.max(64, Math.min(512, integer(manager == null ? null : manager.getProperty(AudioManager.PROPERTY_OUTPUT_FRAMES_PER_BUFFER), 192)));
         limiter = new Limiter(rate, .95, .0015, .12);
         reverb = new Reverb(rate);
         for (int i = 0; i < TABLE_SIZE; i++) sine[i] = (float) Math.sin(i * 2 * Math.PI / TABLE_SIZE);
@@ -117,6 +120,23 @@ final class PianoAudio implements AutoCloseable {
     }
     private static int integer(String value, int fallback) {
         try { return Integer.parseInt(value); } catch (Exception e) { return fallback; }
+    }
+    static int outputRate(int reported) {
+        return reported >= 8000 && reported <= 96000 ? reported : 48000;
+    }
+    int sampleRate() { return rate; }
+    int bufferFrames() { return bufferFrames; }
+    int underruns() { return underruns; }
+    String audioStatus() {
+        return "輸出 " + rate + " Hz · 緩衝 " + frames + "/" + bufferFrames + " 幀 · underrun " + underruns;
+    }
+    void setViolinLevel(double value) {
+        double level = Math.max(0, Math.min(1, value));
+        commands.add(() -> violinLevel = level);
+    }
+    void setReverb(boolean enabled, double value) {
+        double level = Math.max(0, Math.min(.6, value));
+        commands.add(() -> reverb.configure(enabled, level));
     }
     void duck(boolean enabled) { commands.add(() -> duck = enabled ? .25 : 1); }
     void load(Score value) { load(new PlaybackProgram(value)); }
@@ -174,11 +194,12 @@ final class PianoAudio implements AutoCloseable {
             if (n.start > cursor) break;
             int noteChannel = program.noteChannels[id], part = program.noteParts[id];
             if (muted[noteChannel] || (channel >= 0 && noteChannel != channel)) continue;
-            boolean held = n.end() > cursor;
+            long soundingEnd = program.noteEnds[id];
+            boolean held = soundingEnd > cursor;
             if (!held && !partPedals[part]) continue;
             SampleBank bank = bankForNote(id);
             boolean sustainPedal = bank == null || bank.sustainPedal();
-            if (!held && !(sustainPedal && n.end() > pedalStarts[part])) continue;
+            if (!held && !(sustainPedal && soundingEnd > pedalStarts[part])) continue;
             double seconds = clock.age(id);
             if (seconds > 30) continue;
             noteOn(id, n.pitch, n.velocity, seconds < 1.0 / rate);
@@ -231,7 +252,7 @@ final class PianoAudio implements AutoCloseable {
         Score.Note note = score.notes.get(id);
         double duration = score.seconds(note.end()) - score.seconds(note.start);
         boolean allowLowString = lowStringEnabled && program != null && id >= 0 && id < program.noteLowStrings.length && program.noteLowStrings[id];
-        int route = ViolinRouting.route(note.pitch, duration, allowLowString);
+        int route = ViolinRouting.route(note.pitch, duration, allowLowString, note.articulation);
         if (route == ViolinRouting.LOW_PIANO) {
             SampleBank piano = SampleBankStore.bank(PianoSound.SALAMANDER);
             if (piano != null) return piano;
@@ -283,22 +304,28 @@ final class PianoAudio implements AutoCloseable {
             else active++;
         }
         if (active < MAX_ACTIVE && free != null) return free;
-        Voice victim = oldest(false, true);
-        if (victim == null) victim = oldest(false, false);
-        if (victim == null) victim = oldest(true, false);
-        if (victim != null) { victim.held = false; release(victim, .006); }
+        Voice victim = quietest(false, true);
+        if (victim == null) victim = quietest(false, false);
+        if (victim == null) victim = quietest(true, false);
+        if (victim != null) { victim.held = false; release(victim, STEAL_FADE_SECONDS); }
         if (free != null) return free;
         return victim == null ? voices[0] : victim;
     }
-    private Voice oldest(boolean includeHeld, boolean requireUnpedaled) {
-        Voice result = null;
+    private Voice quietest(boolean includeHeld, boolean requireUnpedaled) {
+        Voice result = null; double lowest = Double.MAX_VALUE;
         for (Voice v : voices) {
             if (!v.active) continue;
             if (!includeHeld && v.held) continue;
             if (requireUnpedaled && pedaled(v)) continue;
-            if (result == null || v.started < result.started) result = v;
+            double amplitude = amplitude(v);
+            if (result == null || amplitude < lowest || (amplitude == lowest && v.started < result.started)) {
+                result = v; lowest = amplitude;
+            }
         }
         return result;
+    }
+    private double amplitude(Voice voice) {
+        return voice.level * (voice.sampled ? voice.sampleVoice.envelopeLevel() : 1);
     }
     private boolean pedaled(Voice voice) {
         return voice.sustainPedal && voice.part < partPedals.length && partPedals[voice.part];
@@ -343,6 +370,9 @@ final class PianoAudio implements AutoCloseable {
             .setBufferSizeInBytes(Math.max(minimum, frames * 8 * 2))
             .setTransferMode(AudioTrack.MODE_STREAM).setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY).build();
         track.setBufferSizeInFrames(Math.max(frames * 2, minimum / 8));
+        bufferFrames = track.getBufferSizeInFrames();
+        underruns = 0;
+        lastUnderrunCheck = 0;
         return track;
     }
     private long renderedFrames;
@@ -369,6 +399,11 @@ final class PianoAudio implements AutoCloseable {
                         try { Thread.sleep(200); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); break; }
                         continue;
                     }
+                }
+                long uptime = SystemClock.uptimeMillis();
+                if (uptime - lastUnderrunCheck >= 500) {
+                    lastUnderrunCheck = uptime;
+                    underruns = track.getUnderrunCount();
                 }
                 boolean sounding = active();
                 if (!sounding && idleFrames >= warmFrames) {

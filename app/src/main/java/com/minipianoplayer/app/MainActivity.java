@@ -111,6 +111,8 @@ public final class MainActivity extends Activity {
         createUi(); applyTheme(); setBusy(true);
         if (playback.score != null) { currentId = playback.id; showScore(playback.score); setBusy(false); return; }
         files.execute(() -> {
+            try { library.migrate(); }
+            catch (Exception e) { runOnUiThread(() -> toast("舊音譜移轉失敗：" + e.getMessage())); }
             try {
                 String id = library.selected(); Score saved = id == null ? null : library.load(id);
                 PlaybackProgram compiled = saved == null ? null : new PlaybackProgram(saved);
@@ -139,10 +141,10 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-2, dp(44)); params.setMargins(0, 0, dp(7), 0); parent.addView(button, params);
         button.setOnClickListener(v -> action.run()); return button;
     }
-    private ImageButton playbackButton(LinearLayout parent, int icon, String description, Runnable action) {
+    private ImageButton playbackButton(LinearLayout parent, int icon, String description, int endMarginDp, Runnable action) {
         ImageButton button = new ImageButton(this); button.setImageResource(icon); button.setContentDescription(description);
         button.setPadding(dp(12), dp(10), dp(12), dp(10));
-        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(48), dp(48)); params.setMargins(0, 0, dp(7), 0);
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(dp(48), dp(48)); params.setMargins(0, 0, dp(endMarginDp), 0);
         parent.addView(button, params); button.setOnClickListener(v -> action.run()); return button;
     }
     private void speedMenu() {
@@ -217,7 +219,7 @@ public final class MainActivity extends Activity {
         violinVolumeBar.setProgressBackgroundTintList(ColorStateList.valueOf(UiTheme.blend(theme.surface, theme.muted, .45f)));
         violinVolumeBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             public void onProgressChanged(SeekBar bar, int value, boolean user) {
-                if (user) { UiTheme.preferences(MainActivity.this).edit().putInt("violinVolume", value).apply(); violinVolumeLabel.setText("小提琴音量 " + value + "%"); audio.configure(MainActivity.this); }
+                if (user) { UiTheme.preferences(MainActivity.this).edit().putInt("violinVolume", value).apply(); violinVolumeLabel.setText("小提琴音量 " + value + "%"); audio.setViolinLevel(value / 100.0); }
             }
             public void onStartTrackingTouch(SeekBar bar) {}
             public void onStopTrackingTouch(SeekBar bar) {}
@@ -237,7 +239,7 @@ public final class MainActivity extends Activity {
                 bar.setThumbTintList(ColorStateList.valueOf(enabled ? theme.primary : theme.muted));
             }
             reverbLabel.setAlpha(enabled ? 1f : .65f);
-            audio.configure(MainActivity.this);
+            audio.setReverb(enabled, (bar == null ? reverbMix : bar.getProgress()) / 100.0);
         });
         reverb.setTag("pianoReverb");
         content.addView(reverbLabel);
@@ -250,7 +252,7 @@ public final class MainActivity extends Activity {
         reverbAmount.setProgressBackgroundTintList(ColorStateList.valueOf(UiTheme.blend(theme.surface, theme.muted, .45f)));
         reverbAmount.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             public void onProgressChanged(SeekBar bar, int value, boolean user) {
-                if (user) { UiTheme.preferences(MainActivity.this).edit().putInt("pianoReverbMix", value).apply(); reverbLabel.setText("殘響量 " + value + "%"); audio.configure(MainActivity.this); }
+                if (user) { UiTheme.preferences(MainActivity.this).edit().putInt("pianoReverbMix", value).apply(); reverbLabel.setText("殘響量 " + value + "%"); audio.setReverb(reverb.isChecked(), value / 100.0); }
             }
             public void onStartTrackingTouch(SeekBar bar) {}
             public void onStopTrackingTouch(SeekBar bar) {}
@@ -258,14 +260,14 @@ public final class MainActivity extends Activity {
         content.addView(reverbAmount, new LinearLayout.LayoutParams(-1, dp(44)));
         Button credits = dialogButton(content, "音色來源與授權", false, () -> showCredits(false)); credits.setTag("soundCredits");
         for (int j = 0; j < count; j++) selectionStyle(buttons[j], PianoSound.name(PianoSound.SELECTABLE[j]), selected == PianoSound.SELECTABLE[j]);
-        status.setText(soundStatusText(selected));
+        status.setText(soundDialogStatus(selected));
         ScrollView scroll = new ScrollView(this); scroll.addView(content);
         final boolean[] open = {true};
         final Runnable tick = new Runnable() {
             @Override public void run() {
                 if (!open[0]) return;
                 int current = PianoSound.selected(MainActivity.this);
-                status.setText(soundStatusText(current));
+                status.setText(soundDialogStatus(current));
                 updateSoundNote(violinNote, current);
                 handler.postDelayed(this, 400);
             }
@@ -278,6 +280,7 @@ public final class MainActivity extends Activity {
         String status = sound == PianoSound.AUTO ? SampleBankStore.status() : SampleBankStore.status(sound);
         return PianoSound.name(sound) + " · " + status;
     }
+    private String soundDialogStatus(int sound) { return soundStatusText(sound) + "\n" + audio.audioStatus(); }
     private static void updateSoundNote(TextView note, int sound) {
         if (sound == PianoSound.AUTO) {
             note.setText("自動：依 MusicXML 聲部分配鋼琴／小提琴");
@@ -338,6 +341,11 @@ public final class MainActivity extends Activity {
         stageCard.setBackground(UiTheme.rounded(theme.surface, dp(16)));
         stageCard.setClipToOutline(true);
         piano = new PianoView(this, audio);
+        piano.setOnSeekListener(new PianoView.SeekListener() {
+            @Override public void onSeek(double seconds) { seekTo(seconds); }
+            @Override public void onSeekPreview(double seconds) { previewSeek(seconds); }
+            @Override public void onSeekCancel() { cancelSeekPreview(); }
+        });
         stageCard.addView(piano, new LinearLayout.LayoutParams(-1, 0, 1));
         LinearLayout.LayoutParams stageParams = new LinearLayout.LayoutParams(-1, 0, 1);
         stageParams.setMargins(dp(10), dp(2), dp(10), dp(8));
@@ -356,7 +364,7 @@ public final class MainActivity extends Activity {
         info.addView(moreButton, moreParams); moreButton.setOnClickListener(v -> moreMenu());
         miniPlayer.addView(info, new LinearLayout.LayoutParams(-1, dp(34)));
         LinearLayout controls = row();
-        play = playbackButton(controls, R.drawable.ic_play, "播放", () -> {
+        play = playbackButton(controls, R.drawable.ic_play, "播放", 2, () -> {
             if (audio.playing) {
                 playRequested = false;
                 playback.pause();
@@ -367,7 +375,7 @@ public final class MainActivity extends Activity {
             }
             refreshNow();
         });
-        stop = playbackButton(controls, R.drawable.ic_stop, "停止", this::stopPlayback);
+        stop = playbackButton(controls, R.drawable.ic_stop, "停止", 7, this::stopPlayback);
         progress = new SeekBar(this); progress.setMax(1000); progress.setTag("playbackProgress"); progress.setContentDescription("播放進度"); styleProgress(progress);
         controls.addView(progress, new LinearLayout.LayoutParams(0, dp(38), 1));
         speedButton = button(new String[]{"0.5×", "0.75×", "1×", "1.25×", "1.5×"}[speedIndex], controls, this::speedMenu);
@@ -445,7 +453,40 @@ public final class MainActivity extends Activity {
             audio.mute(which, !enabled); save(score);
         }).setPositiveButton("完成", null).create();
         shown.show();
-        shown.getListView().setMinimumHeight(Math.min(dp(420), Math.max(dp(240), getResources().getDisplayMetrics().heightPixels * 2 / 5)));
+        android.widget.ListView list = shown.getListView();
+        list.setVerticalScrollBarEnabled(false);
+        list.setScrollbarFadingEnabled(false);
+        list.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        int maxHeight = Math.min(dp(600), Math.round(getResources().getDisplayMetrics().heightPixels * .72f));
+        int contentHeight = channels.size() * dp(48) + dp(16);
+        int targetHeight = Math.min(maxHeight, Math.max(dp(120), contentHeight));
+        list.setMinimumHeight(targetHeight);
+        list.getLayoutParams().height = targetHeight;
+        list.setLayoutParams(list.getLayoutParams());
+    }
+    private void previewSeek(double seconds) {
+        if (score.notes.isEmpty()) return;
+        double target = Math.max(0, Math.min(durationSeconds, seconds));
+        dragging = true; dragSeconds = target;
+        progress.setProgress((int) (target * 1000 / Math.max(.001, durationSeconds)));
+        updateTime(target);
+    }
+    private void cancelSeekPreview() {
+        if (score.notes.isEmpty()) return;
+        double current = score.seconds((long) audio.position);
+        dragging = false; dragSeconds = -1; lastTime = "";
+        progress.setProgress((int) (current * 1000 / Math.max(.001, durationSeconds)));
+        updateTime(current);
+    }
+    private void seekTo(double seconds) {
+        if (score.notes.isEmpty()) return;
+        double target = Math.max(0, Math.min(durationSeconds, seconds));
+        audio.seek(score.tick(target));
+        dragging = false; dragSeconds = -1; lastTime = "";
+        progress.setProgress((int) (target * 1000 / Math.max(.001, durationSeconds)));
+        updateTime(target);
+        handler.removeCallbacks(refresh);
+        handler.postDelayed(refresh, 60);
     }
     private void stopPlayback() {
         playRequested = false;
@@ -509,9 +550,10 @@ public final class MainActivity extends Activity {
         android.graphics.drawable.LayerDrawable layer = new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{track, clip});
         layer.setId(0, android.R.id.background); layer.setId(1, android.R.id.progress);
         bar.setProgressTintList(null); bar.setProgressBackgroundTintList(null); bar.setProgressDrawable(layer);
-        GradientDrawable thumb = new GradientDrawable(); thumb.setSize(0, 0);
+        GradientDrawable thumb = new GradientDrawable(); thumb.setShape(GradientDrawable.OVAL);
+        thumb.setColor(theme.primary); thumb.setSize(dp(10), dp(10));
         bar.setThumb(thumb); bar.setThumbOffset(0);
-        bar.setPadding(dp(2), dp(4), dp(2), dp(4));
+        bar.setPadding(dp(6), dp(4), dp(6), dp(4));
     }
     private void applyTheme() {
         theme = new UiTheme(this); mainRoot.setBackgroundColor(theme.background);
@@ -529,8 +571,12 @@ public final class MainActivity extends Activity {
         reloadLibrary(id != null);
     }
     private void updateTime(double sourceSeconds) {
-        String text = formatTime(sourceSeconds / speeds[speedIndex]) + " / " + formatTime(durationSeconds / speeds[speedIndex]);
-        if (!text.equals(lastTime)) { time.setText(text); lastTime = text; }
+        String current = formatTime(sourceSeconds / speeds[speedIndex]), total = formatTime(durationSeconds / speeds[speedIndex]);
+        String text = current + " / " + total;
+        if (!text.equals(lastTime)) {
+            time.setText(text); lastTime = text;
+            progress.setContentDescription("播放進度 " + text);
+        }
     }
     private static String formatTime(double seconds) {
         int value = (int) Math.max(0, seconds), minute = value / 60, second = value % 60;

@@ -75,7 +75,7 @@ public final class ScoreLibraryActivity extends Activity {
         root.addView(header, new LinearLayout.LayoutParams(-1, dp(56)));
         search = new EditText(this);
         search.setSingleLine(true);
-        search.setHint("搜尋樂曲名稱");
+        search.setHint("搜尋名稱、作曲者、樂器");
         search.setTextSize(15);
         search.setTextColor(neutralText());
         search.setHintTextColor(neutralMuted());
@@ -218,7 +218,11 @@ public final class ScoreLibraryActivity extends Activity {
             card.setPadding(dp(14), dp(12), dp(14), dp(10));
             card.setBackground(UiTheme.rounded(theme.surface, dp(16)));
             TextView title = text(entry.title, 17, theme.text); title.setTypeface(null, Typeface.BOLD);
-            title.setSingleLine(true); title.setEllipsize(android.text.TextUtils.TruncateAt.END); card.addView(title);
+            title.setSingleLine(true); title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            title.setTag("scoreTitle_" + entry.id);
+            title.setContentDescription("樂曲名稱：" + entry.title + "，點擊查看匯入摘要");
+            title.setOnClickListener(v -> showSummary(entry));
+            card.addView(title);
             LinearLayout summaryRow = new LinearLayout(this); summaryRow.setGravity(Gravity.CENTER_VERTICAL);
             TextView composer = text(entry.composer == null ? "" : entry.composer.trim(), 12, theme.muted);
             composer.setSingleLine(true); composer.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -246,7 +250,7 @@ public final class ScoreLibraryActivity extends Activity {
             deleteParams.setMargins(dp(8), 0, 0, 0);
             actions.addView(delete, deleteParams);
             card.addView(actions);
-            card.setOnClickListener(v -> play(entry));
+            card.setTag("scoreCard_" + entry.id);
             LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2);
             cardParams.setMargins(0, 0, 0, dp(8));
             body.addView(card, cardParams);
@@ -271,12 +275,22 @@ public final class ScoreLibraryActivity extends Activity {
         String needle = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
         List<ScoreLibrary.Entry> result = new ArrayList<>();
         for (ScoreLibrary.Entry entry : source) {
-            if (needle.isEmpty() || entry.title.toLowerCase(Locale.ROOT).contains(needle)) result.add(entry);
+            if (needle.isEmpty() || matches(entry.title, needle) || matches(entry.composer, needle) || matches(entry.instruments, needle)) result.add(entry);
         }
         if (sortMode == 1) result.sort((a, b) -> a.title.compareToIgnoreCase(b.title));
         else if (sortMode == 2) result.sort(Comparator.comparingDouble(entry -> entry.seconds));
         else result.sort((a, b) -> Long.compare(b.created, a.created));
         return result;
+    }
+    private static boolean matches(String value, String needle) {
+        return value != null && value.toLowerCase(Locale.ROOT).contains(needle);
+    }
+    private void showSummary(ScoreLibrary.Entry entry) {
+        final Score[] loaded = new Score[1];
+        perform(() -> loaded[0] = library.load(entry.id), () -> {
+            if (loaded[0] == null) return;
+            dialog().setTitle("匯入摘要").setMessage(loaded[0].importSummary()).setPositiveButton("知道了", null).show();
+        });
     }
     private void play(ScoreLibrary.Entry entry) {
         if (playback == null || busy) return;

@@ -4,6 +4,7 @@ import android.content.pm.ActivityInfo;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.view.View;
+import android.widget.SeekBar;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.robolectric.Robolectric;
@@ -24,6 +25,8 @@ public class StartupTest {
             Field whitesField = PianoView.class.getDeclaredField("whites"); whitesField.setAccessible(true);
             assertEquals(24, whitesField.getInt(pianoField.get(activity)));
             View content = activity.findViewById(android.R.id.content);
+            SeekBar progress = content.findViewWithTag("playbackProgress");
+            assertNotNull(progress); assertTrue(progress.getThumb().getIntrinsicWidth() > 0);
             content.measure(View.MeasureSpec.makeMeasureSpec(720, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(1280, View.MeasureSpec.EXACTLY));
             content.layout(0, 0, 720, 1280);

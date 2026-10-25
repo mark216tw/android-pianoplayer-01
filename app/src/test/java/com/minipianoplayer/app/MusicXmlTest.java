@@ -39,8 +39,11 @@ public class MusicXmlTest {
             "<direction><direction-type><metronome><beat-unit>quarter</beat-unit><beat-unit-dot/><per-minute>80</per-minute></metronome></direction-type></direction>" +
             "<note><grace/><pitch><step>D</step><octave>4</octave></pitch></note>" + note("", "C", 1) + "</measure>" +
             "<measure><note><rest/><duration>1</duration></note>" + note("", "E", 1) + "</measure>"));
-        assertEquals(120, s.bpm); assertEquals(2, s.notes.size()); assertEquals(960, s.notes.get(1).start);
-        assertTrue(s.warnings.contains("裝飾音暫略過"));
+        assertEquals(120, s.bpm); assertEquals(3, s.notes.size());
+        assertEquals(60, s.notes.get(0).pitch); assertEquals(0, s.notes.get(0).start);
+        assertEquals(62, s.notes.get(1).pitch); assertEquals(0, s.notes.get(1).start);
+        assertEquals(96, s.notes.get(1).duration); assertEquals(960, s.notes.get(2).start);
+        assertTrue(s.features.contains("裝飾音")); assertFalse(s.warnings.contains("裝飾音暫略過"));
     }
     @Test public void compressedMxlUsesContainerRootRatherThanFirstXml() throws Exception {
         ByteArrayOutputStream output = new ByteArrayOutputStream();

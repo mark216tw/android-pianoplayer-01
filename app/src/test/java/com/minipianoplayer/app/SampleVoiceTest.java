@@ -45,6 +45,12 @@ public class SampleVoiceTest {
         for (int i = 0; i < 20; i++) voice.next();
         assertFalse(voice.active); assertEquals(0, voice.left, 0); assertEquals(0, voice.right, 0);
     }
+    @Test public void sampleAttackStartsAtZeroAndReachesFullLevelWithinAboutOneMillisecond() {
+        SampleVoice voice = new SampleVoice(); voice.start(constant(1), 69, 48000);
+        voice.next(); assertEquals(0, voice.left, 0);
+        for (int i = 0; i < 48; i++) voice.next();
+        assertTrue(voice.left > .99);
+    }
     private PianoSample constant(double value) {
         short[] pcm = new short[24000 * 2]; java.util.Arrays.fill(pcm, (short) (value * 32767));
         return new PianoSample(69, 24000, 2, pcm);

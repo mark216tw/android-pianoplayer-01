@@ -5,11 +5,11 @@
 | 項目 | 值 |
 |---|---|
 | 套件 | `com.minipianoplayer.app` |
-| 版本 | `1.0.0` / `versionCode 1` |
+| 版本 | `1.0.1` / `versionCode 2` |
 | minSdk / targetSdk | 26 / 36 |
 | Java | 17 |
-| 音訊取樣率 | 48 kHz，立體聲 PCM float |
-| 發聲槽 | 72 槽，最多 64 同時發聲 |
+| 音訊取樣率 | 優先使用裝置原生輸出率（8–96 kHz，常見 44.1／48 kHz），無效時回退 48 kHz；立體聲 PCM float |
+| 發聲槽 | 72 槽，最多 64 同時發聲；超出時優先淡出最低振幅且未踩踏板的音 |
 | 樂譜時間 | 480 PPQ |
 
 ## 2. 鋼琴卷軸繪製
@@ -28,6 +28,7 @@
 - 音高→Y：依 `base..topWhite` 線性映射，低音在下、高音在上。
 - 音符寬度＝時值；高度依音高 lane 高度調整。
 - 只繪製落在可視時間窗內的音符，並裁切到卷軸內容區。
+- 點擊卷軸不跳轉；水平拖曳超過 touch slop 後，以 `dragStartSeconds - dx / pxPerSecond` 作為繪製時間，讓音符與小節線跟手移動，播放游標固定。拖曳期間同步更新時間與進度顯示，放開後才 seek，不繪製預覽線。
 
 顏色：
 
@@ -62,12 +63,13 @@
 
 ## 4. 音訊
 
-- `PianoAudio` 使用連續 AudioTrack 串流。
-- 播放事件由 `PlaybackProgram` 預先編譯，音訊執行緒不安裝 XML 解析器。
+- `PianoAudio` 使用連續 AudioTrack 串流，取樣率取自 `PROPERTY_OUTPUT_SAMPLE_RATE`；音色選單會顯示實際輸出率、目前緩衝幀數與 underrun 次數。
+- 播放事件由 `PlaybackProgram` 預先編譯，音訊執行緒不安裝 XML 解析器；同一時間的事件依「踏板 → 放鍵 → 按鍵」處理，踏板踩下可接住同 tick 結束的音。
+- 採樣音起音為 0.5 ms，合成音仍為 2 ms；voice stealing 優先選擇最低振幅、未踩踏板且已放鍵的 voice，仍有空槽時以 6 ms 淡出後交棒。
 - 取樣音色：Salamander 三力度層、VSCO 2 CE 小提琴 Arco p／f 與 Spiccato v1／v2，逐鍵 K 加權起音／持續響度校正，邊界以等功率交叉淡化；小提琴以 `releaseSeconds` 與 `sustainPedal` 覆寫鋼琴踏板行為，並以「小提琴音量」偏好（預設 75%）平衡大鋼琴音量。
 - 自動音色：`InstrumentDetector` 依 MusicXML 聲部名稱、`score-instrument` 與 `midi-program` 分配每個聲部；中提琴／大提琴／低音提琴標記為低音弦樂。`PlaybackProgram` 保存 `noteSounds`、`noteLowStrings` 與 `requiredSounds`。
 - 音譜庫切換：先淡出舊音軌，再載入新曲；`SampleBankStore.ready()` 會等主要鋼琴／小提琴 bank 就緒後才開始播放，避免第一顆音暫用合成音色。
-- 小提琴路由：`ViolinRouting` 依音高與音長選擇低音鋼琴（小提琴聲部 21–54）、Spiccato（21–96 且音長 < 0.35 秒）或 Arco；中提琴／大提琴預設允許低音使用移調小提琴。Arco 與 Spic 85–96 套用隨音高增加的二級低通。
+- 小提琴路由：`ViolinRouting` 優先採用 MusicXML 的斷奏／持音記號，再依音高與音長選擇低音鋼琴（小提琴聲部 21–54）、Spiccato（21–96、斷奏或音長 < 0.35 秒）或 Arco；中提琴／大提琴預設允許低音使用移調小提琴。Arco 與 Spic 85–96 套用隨音高增加的二級低通。
 - 合成音色：正弦查表＋泛音＋衰減包絡。
 - 踏板：依 part 記錄 pedal 狀態，放開時釋放未按住音符；Arco／Spic 忽略踏板，低音鋼琴保留踏板。
 - 靜音：依聲部頻道淡出或恢復。

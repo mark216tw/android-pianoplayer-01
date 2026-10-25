@@ -34,9 +34,10 @@ public final class Score {
     private int cachedNotes = -1, cachedPedals = -1;
 
     public static final class Note {
+        public static final int NORMAL = 0, STACCATO = 1, TENUTO = 2;
         public final int pitch, velocity;
         public final String part, voice, channelKey;
-        public final int staff, staffMask;
+        public final int staff, staffMask, articulation;
         public final long start, duration;
         public Note(int pitch, long start, long duration, int velocity) {
             this(pitch, start, duration, velocity, "P1", "1", pitch < 60 ? 2 : 1);
@@ -45,12 +46,19 @@ public final class Score {
             this(pitch, start, duration, velocity, part, voice, staff, 1 << (Math.max(1, Math.min(32, staff)) - 1));
         }
         public Note(int pitch, long start, long duration, int velocity, String part, String voice, int staff, int staffMask) {
+            this(pitch, start, duration, velocity, part, voice, staff, staffMask, NORMAL);
+        }
+        public Note(int pitch, long start, long duration, int velocity, String part, String voice, int staff, int staffMask, int articulation) {
             this.pitch = pitch; this.start = Math.max(0, start);
             this.duration = Math.max(1, duration); this.velocity = Math.max(1, Math.min(127, velocity));
             this.part = part; this.voice = voice; this.staff = staff; this.staffMask = staffMask;
+            this.articulation = articulation == STACCATO || articulation == TENUTO ? articulation : NORMAL;
             this.channelKey = part + "\u001f" + voice;
         }
         public long end() { return start + duration; }
+        public long soundingEnd() {
+            return articulation == STACCATO ? start + Math.max(1, duration / 2) : end();
+        }
         public String channelKey() { return channelKey; }
     }
     public static final class Pedal {

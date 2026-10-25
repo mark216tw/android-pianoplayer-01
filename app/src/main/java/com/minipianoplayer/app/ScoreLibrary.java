@@ -96,10 +96,6 @@ final class ScoreLibrary {
         meta.put("composer", score.composer).put("instruments", score.instrumentSummary());
         meta.put("updated", System.currentTimeMillis()); writeMeta(id, meta);
     }
-    synchronized void rename(String id, String title) throws Exception {
-        title = title.trim(); if (title.isEmpty() || title.length() > 80) throw new IllegalArgumentException("名稱需為 1 至 80 字");
-        JSONObject meta = metadata(id); meta.put("title", title).put("updated", System.currentTimeMillis()); writeMeta(id, meta);
-    }
     synchronized void delete(String id) throws Exception {
         File score = path(id, ".json");
         if (score.exists() && !score.delete()) throw new java.io.IOException("無法刪除音譜");

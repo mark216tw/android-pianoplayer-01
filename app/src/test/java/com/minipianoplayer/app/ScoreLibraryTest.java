@@ -15,16 +15,15 @@ import static org.junit.Assert.*;
 @RunWith(RobolectricTestRunner.class)
 @Config(sdk = 29)
 public class ScoreLibraryTest {
-    @Test public void independentScoresRenameUpdateAndDeletePersist() throws Exception {
+    @Test public void independentScoresUpdateAndDeletePersist() throws Exception {
         Context context = RuntimeEnvironment.getApplication(); ScoreLibrary library = new ScoreLibrary(context);
         Score first = TestScores.simple(); first.title = "第一首";
         Score second = first.copy(); second.title = "第二首";
         String a = library.add(first, "匯入"), b = library.add(second, "匯入");
         assertNotEquals(a, b); assertEquals(2, library.list().size());
-        library.rename(a, "新名稱");
-        library.update(a, first); // A queued playback-setting update must not undo a rename.
+        library.update(a, first);
         ScoreLibrary reopened = new ScoreLibrary(context);
-        assertEquals("新名稱", reopened.load(a).title);
+        assertEquals("第一首", reopened.load(a).title);
         assertEquals("第二首", reopened.load(b).title);
         assertEquals(b, reopened.selected());
         reopened.delete(b); assertNull(reopened.selected());
@@ -56,10 +55,9 @@ public class ScoreLibraryTest {
         assertEquals(1, library.list().size()); assertEquals("legacy", library.selected());
         assertEquals("舊演奏", library.load("legacy").title); assertNotNull(new ScoreStorage(context).load());
     }
-    @Test public void invalidNamesDoNotChangeStoredTitle() throws Exception {
-        ScoreLibrary library = new ScoreLibrary(RuntimeEnvironment.getApplication()); Score score = TestScores.simple();
-        String id = library.add(score, "匯入");
-        try { library.rename(id, "   "); fail("Expected invalid name"); } catch (IllegalArgumentException expected) { }
-        assertEquals(score.title, library.load(id).title);
+    @Test public void articulationSurvivesStorageRoundTrip() throws Exception {
+        Score score = new Score(); score.notes.add(new Score.Note(60, 0, 480, 90, "P1", "1", 1, 1, Score.Note.STACCATO)); score.sort();
+        ScoreStorage storage = new ScoreStorage(RuntimeEnvironment.getApplication()); storage.save(score);
+        assertEquals(Score.Note.STACCATO, storage.load().notes.get(0).articulation);
     }
 }

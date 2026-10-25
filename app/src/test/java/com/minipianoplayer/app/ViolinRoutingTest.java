@@ -25,4 +25,9 @@ public class ViolinRoutingTest {
         assertEquals(ViolinRouting.SPIC, ViolinRouting.route(47, .1, true));
         assertEquals(ViolinRouting.ARCO, ViolinRouting.route(47, .8, true));
     }
+    @Test public void authoredArticulationsOverrideDurationHeuristics() {
+        assertEquals(ViolinRouting.SPIC, ViolinRouting.route(60, .8, false, Score.Note.STACCATO));
+        assertEquals(ViolinRouting.ARCO, ViolinRouting.route(60, .1, false, Score.Note.TENUTO));
+        assertEquals(ViolinRouting.ARCO, ViolinRouting.route(97, .1, false, Score.Note.STACCATO));
+    }
 }

@@ -3,6 +3,7 @@ package com.minipianoplayer.app;
 /** One reusable sample cursor per polyphonic voice, optionally crossfading two velocity layers. */
 final class SampleVoice {
     private static final double LEGACY_SOFT_GAIN = 1.78;
+    private static final double ATTACK_SECONDS = .0005;
     private PianoSample first, second;
     private double firstPos, secondPos, firstStep, secondStep, mix, firstGain = 1, secondGain = 1;
     private double envelope, release;
@@ -49,12 +50,13 @@ final class SampleVoice {
         active = playing(first, firstPos) || playing(second, secondPos);
     }
     void release(double seconds) { release = Math.exp(-1.0 / (outputRate * seconds)); }
+    double envelopeLevel() { return envelope; }
     void next() {
         left = right = 0;
         if (!active) return;
         boolean firstOn = playing(first, firstPos), secondOn = playing(second, secondPos);
         if (envelope < .0001 || (!firstOn && !secondOn)) { active = false; return; }
-        double gain = envelope * Math.min(1, age++ / (outputRate * .002));
+        double gain = envelope * Math.min(1, age++ / (outputRate * ATTACK_SECONDS));
         if (firstOn && secondOn) {
             add(first, firstPos, Math.sqrt(1 - mix) * firstGain, gain);
             add(second, secondPos, Math.sqrt(mix) * secondGain, gain);

@@ -31,11 +31,11 @@
 | `composer` | string | 作曲者（MusicXML `creator type="composer"`） |
 | `bpm` | int | 起始 BPM |
 | `beats` / `beatType` | int | 起始拍號 |
-| `schemaVersion` | int | 目前為 4 |
+| `schemaVersion` | int | 目前為 5 |
 | `endTick` | long | 演奏結尾 tick |
 | `originalMeasureCount` | int | 原譜小節數 |
 | `originalXml` | string | 原始 MusicXML（若有） |
-| `notes` | array | `[pitch,start,duration,velocity,part,voice,staff,staffMask]` |
+| `notes` | array | `[pitch,start,duration,velocity,part,voice,staff,staffMask,articulation]`；articulation 0 一般、1 斷奏、2 持音；舊檔缺少時視為 0 |
 | `pedals` | array | `[tick,down,part]` |
 | `tempos` | array | `[tick,bpm]` |
 | `measures` | array | `[tick,duration,number,visit]` |

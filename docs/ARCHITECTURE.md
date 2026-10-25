@@ -27,7 +27,7 @@ flowchart TB
 |---|---|---|
 | 操作介面 | MainActivity | 播放、進度、速度、聲部、音色、摘要 |
 | 設定 | SettingsActivity | 顯示模式、主題色彩、自訂 Hue |
-| 音譜庫 | ScoreLibraryActivity、ScoreLibrary | 清單、匯入、播放、改名、刪除、上次選取 |
+| 音譜庫 | ScoreLibraryActivity、ScoreLibrary | 清單、匯入、播放、刪除、上次選取 |
 | 播放生命週期 | PlaybackController、PlaybackService | 共用引擎、背景服務、通知、媒體控制、音訊焦點 |
 | 視覺 | PianoView | 橫向鋼琴卷軸、完整音域鍵盤、亮鍵 |
 | 外觀 | UiTheme、HueSlider | 色彩角色、系統列、色相 |
@@ -52,7 +52,7 @@ flowchart TB
 |---|---|---|
 | UI／主執行緒 | 觸控、畫面、對話框、進度跳轉 | 目前曲目、UI 狀態、偏好 |
 | 主畫面檔案執行器 | 載入、保存 | 解析中的曲目、保存快照 |
-| 音譜庫檔案執行器 | 匯入、清單、讀取、改名、刪除 | 音譜摘要 |
+| 音譜庫檔案執行器 | 匯入、清單、讀取、刪除 | 音譜摘要 |
 | 採樣載入執行器 | 載入音色包、PCM 解碼 | 載入代次、銀行快取 |
 | 音訊優先執行緒 | 排程、發聲槽、混音 | playing、cursor、踏板、靜音 |
 

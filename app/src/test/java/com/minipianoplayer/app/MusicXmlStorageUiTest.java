@@ -10,6 +10,7 @@ import org.robolectric.RobolectricTestRunner;
 import org.robolectric.RuntimeEnvironment;
 import org.robolectric.Shadows;
 import org.robolectric.annotation.Config;
+import org.robolectric.shadow.api.Shadow;
 import org.robolectric.shadows.ShadowAlertDialog;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -92,11 +93,59 @@ public class MusicXmlStorageUiTest {
             View voicesItem = menu.getListView().getAdapter().getView(1, null, menu.getListView());
             menu.getListView().performItemClick(voicesItem, 1, 1);
             var dialog = ShadowAlertDialog.getLatestAlertDialog(); assertEquals(2, dialog.getListView().getCount());
-            assertTrue(dialog.getListView().getMinimumHeight() > 0);
+            assertTrue(dialog.getListView().getMinimumHeight() >= Math.round(96 * dialog.getListView().getResources().getDisplayMetrics().density));
+            assertFalse(dialog.getListView().isVerticalScrollBarEnabled());
+            assertTrue(dialog.getListView().getLayoutParams().height >= Math.round(96 * dialog.getListView().getResources().getDisplayMetrics().density));
             View choice = dialog.getListView().getAdapter().getView(0, null, dialog.getListView());
             assertTrue(dialog.getListView().isItemChecked(0)); dialog.getListView().performItemClick(choice, 0, 0); dialog.dismiss();
             java.lang.reflect.Field scoreField = MainActivity.class.getDeclaredField("score"); scoreField.setAccessible(true);
             assertEquals(1, ((Score) scoreField.get(activity)).mutedVoices.size());
+        }
+    }
+    @Test public void startupMigratesLegacyPerformanceFileIntoLibrary() throws Exception {
+        var context = RuntimeEnvironment.getApplication();
+        Score legacy = TestScores.simple(); legacy.title = "舊演奏";
+        new ScoreStorage(context).save(legacy);
+        context.getSharedPreferences("scoreLibrary", android.content.Context.MODE_PRIVATE).edit().clear().commit();
+        try (var controller = Robolectric.buildActivity(MainActivity.class).setup()) {
+            ScoreLibrary library = new ScoreLibrary(context);
+            long deadline = System.nanoTime() + 5_000_000_000L;
+            while (library.selected() == null && System.nanoTime() < deadline) {
+                Shadows.shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(10); library = new ScoreLibrary(context);
+            }
+            assertEquals("legacy", library.selected());
+            assertTrue(library.list().stream().anyMatch(entry -> "legacy".equals(entry.id)));
+            assertEquals("舊演奏", library.load("legacy").title);
+        }
+    }
+    @Test public void tappingTitleShowsSummaryWithoutStartingPlayback() throws Exception {
+        var context = RuntimeEnvironment.getApplication();
+        ScoreLibrary library = new ScoreLibrary(context); Score score = imported();
+        score.title = "這是一個非常長而且需要在摘要中完整顯示的樂曲名稱";
+        String id = library.add(score, "匯入"); library.select(id);
+        try (var controller = Robolectric.buildActivity(ScoreLibraryActivity.class).setup()) {
+            ScoreLibraryActivity activity = controller.get();
+            View content = activity.findViewById(android.R.id.content);
+            long deadline = System.nanoTime() + 5_000_000_000L;
+            View title = null;
+            while ((title = content.findViewWithTag("scoreTitle_" + id)) == null && System.nanoTime() < deadline) {
+                Shadows.shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(10);
+            }
+            assertNotNull(title); title.performClick();
+            deadline = System.nanoTime() + 5_000_000_000L;
+            while (ShadowAlertDialog.getLatestAlertDialog() == null && System.nanoTime() < deadline) {
+                Shadows.shadowOf(Looper.getMainLooper()).idle(); Thread.sleep(10);
+            }
+            var summary = ShadowAlertDialog.getLatestAlertDialog();
+            assertNotNull(summary); CharSequence message = Shadow.<ShadowAlertDialog>extract(summary).getMessage();
+            assertTrue(message.toString().contains(score.title)); assertTrue(message.toString().contains("個音符"));
+            java.lang.reflect.Field playbackField = ScoreLibraryActivity.class.getDeclaredField("playback"); playbackField.setAccessible(true);
+            PlaybackController playback = (PlaybackController) playbackField.get(activity);
+            assertFalse(playback.audio.playing);
+            summary.dismiss();
+            View card = content.findViewWithTag("scoreCard_" + id);
+            assertNotNull(card); card.performClick();
+            assertFalse(playback.audio.playing);
         }
     }
     @Test public void libraryUpdatePersistsMutedVoices() throws Exception {

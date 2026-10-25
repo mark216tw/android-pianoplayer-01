@@ -30,7 +30,6 @@ final class PlaybackController {
     }
     void pause() { audio.pause(); }
     void stop() { audio.stop(); }
-    void rename(String id, String title) { if (id.equals(this.id) && score != null) score.title = title; }
     void deleted(String id) {
         if (!id.equals(this.id)) return;
         stop(); this.id = null; score = new Score(); score.title = "尚未匯入樂譜"; audio.load(score);

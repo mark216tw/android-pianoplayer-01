@@ -1,6 +1,6 @@
 # 文件首頁
 
-本文件對應 **鋼琴曲播放 1.0.0**（`com.minipianoplayer.app`）。APP 只播放 MusicXML 鋼琴樂曲，不提供錄音、手動彈奏或匯出。
+本文件對應 **鋼琴曲播放 1.0.1**（`com.minipianoplayer.app`）。APP 只播放 MusicXML 鋼琴樂曲，不提供錄音、手動彈奏或匯出。
 
 | 我想… | 文件 |
 |---|---|

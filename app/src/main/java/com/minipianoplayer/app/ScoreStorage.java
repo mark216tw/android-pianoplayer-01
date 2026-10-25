@@ -19,10 +19,10 @@ final class ScoreStorage {
     private void saveLocked(Score score) throws Exception {
         JSONObject root = new JSONObject(); root.put("title", score.title); root.put("composer", score.composer); root.put("bpm", score.bpm);
         root.put("beats", score.beats); root.put("beatType", score.beatType);
-        root.put("schemaVersion", 4); root.put("endTick", score.endTick); root.put("originalMeasureCount", score.originalMeasureCount);
+        root.put("schemaVersion", 5); root.put("endTick", score.endTick); root.put("originalMeasureCount", score.originalMeasureCount);
         if (score.originalXml != null) root.put("originalXml", score.originalXml);
         JSONArray notes = new JSONArray(), pedals = new JSONArray();
-        for (Score.Note n : score.notes) notes.put(new JSONArray().put(n.pitch).put(n.start).put(n.duration).put(n.velocity).put(n.part).put(n.voice).put(n.staff).put(n.staffMask));
+        for (Score.Note n : score.notes) notes.put(new JSONArray().put(n.pitch).put(n.start).put(n.duration).put(n.velocity).put(n.part).put(n.voice).put(n.staff).put(n.staffMask).put(n.articulation));
         for (Score.Pedal p : score.pedals) pedals.put(new JSONArray().put(p.tick).put(p.down).put(p.part));
         root.put("notes", notes); root.put("pedals", pedals);
         JSONArray tempos = new JSONArray(), measures = new JSONArray();
@@ -48,7 +48,7 @@ final class ScoreStorage {
         for (int i = 0; i < notes.length(); i++) {
             JSONArray n = notes.getJSONArray(i);
             if (n.length() < 7) score.notes.add(new Score.Note(n.getInt(0), n.getLong(1), n.getLong(2), n.getInt(3)));
-            else score.notes.add(new Score.Note(n.getInt(0), n.getLong(1), n.getLong(2), n.getInt(3), n.getString(4), n.getString(5), n.getInt(6), n.optInt(7, 1 << (n.getInt(6) - 1))));
+            else score.notes.add(new Score.Note(n.getInt(0), n.getLong(1), n.getLong(2), n.getInt(3), n.getString(4), n.getString(5), n.getInt(6), n.optInt(7, 1 << (n.getInt(6) - 1)), n.optInt(8, Score.Note.NORMAL)));
         }
         for (int i = 0; i < pedals.length(); i++) { JSONArray p = pedals.getJSONArray(i); score.pedals.add(new Score.Pedal(p.getLong(0), p.getBoolean(1), p.optString(2, "P1"))); }
         score.endTick = root.optLong("endTick", 0); score.originalMeasureCount = root.optInt("originalMeasureCount", 0);

@@ -6,13 +6,21 @@ import android.graphics.Color;
 import android.graphics.Paint;
 import android.graphics.RectF;
 import android.os.SystemClock;
+import android.view.HapticFeedbackConstants;
+import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 final class PianoView extends View {
+    interface SeekListener {
+        void onSeek(double seconds);
+        default void onSeekPreview(double seconds) {}
+        default void onSeekCancel() {}
+    }
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint stroke = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint labelPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -43,6 +51,11 @@ final class PianoView extends View {
     private int whiteColor = 0xFFFFFDF5, blackColor = 0xFF22343C;
     private boolean dark;
     private int themeHue = 158;
+    private SeekListener seekListener;
+    private double lastSeconds, dragStartSeconds, dragSeconds = Double.NaN;
+    private float downX, downY;
+    private boolean tracking, dragging;
+    private final int touchSlop;
 
     private static final class Key {
         final int pitch;
@@ -58,8 +71,13 @@ final class PianoView extends View {
         android.util.DisplayMetrics metrics = context.getResources().getDisplayMetrics();
         density = metrics.density;
         scaledDensity = metrics.scaledDensity;
-        setContentDescription("鋼琴卷軸與完整音域鍵盤");
+        touchSlop = ViewConfiguration.get(context).getScaledTouchSlop();
+        setContentDescription("鋼琴卷軸與完整音域鍵盤，水平拖曳卷軸可移動時間軸");
         setFocusable(true);
+    }
+    void setOnSeekListener(SeekListener listener) {
+        seekListener = listener;
+        setClickable(listener != null);
     }
 
     void theme(UiTheme theme) {
@@ -252,11 +270,61 @@ final class PianoView extends View {
         return channel >= 0 && channel < channels.size() && score.mutedVoices.contains(channels.get(channel).key);
     }
 
+    static double draggedSeconds(double startSeconds, float dx, float pxPerSecond, double duration) {
+        if (!Float.isFinite(pxPerSecond) || pxPerSecond <= 0 || !Double.isFinite(duration)) return startSeconds;
+        return Math.max(0, Math.min(duration, startSeconds - dx / pxPerSecond));
+    }
+    private double durationSeconds() { return score == null ? 0 : score.seconds(score.length()); }
+    private void resetTouch(boolean notifyCancel) {
+        boolean wasDragging = dragging;
+        tracking = false; dragging = false; dragSeconds = Double.NaN; downX = downY = 0;
+        if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
+        if (notifyCancel && wasDragging && seekListener != null) seekListener.onSeekCancel();
+        invalidate();
+    }
+    @Override public boolean onTouchEvent(MotionEvent event) {
+        if (score == null || seekListener == null || pxPerSecond <= 0) return super.onTouchEvent(event);
+        float x = event.getX(), y = event.getY();
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+                if (!rollRect.contains(x, y)) return false;
+                tracking = true; dragging = false; dragSeconds = Double.NaN;
+                downX = x; downY = y; dragStartSeconds = lastSeconds;
+                if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+                return true;
+            case MotionEvent.ACTION_MOVE:
+                if (!tracking) return false;
+                float dx = x - downX, dy = y - downY;
+                if (!dragging) {
+                    if (Math.abs(dx) <= touchSlop || Math.abs(dx) <= Math.abs(dy)) return true;
+                    dragging = true;
+                }
+                dragSeconds = draggedSeconds(dragStartSeconds, dx, pxPerSecond, durationSeconds());
+                seekListener.onSeekPreview(dragSeconds);
+                invalidate();
+                return true;
+            case MotionEvent.ACTION_UP:
+                if (!tracking) return false;
+                if (!dragging) { resetTouch(false); return true; }
+                double target = dragSeconds;
+                resetTouch(false);
+                performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+                seekListener.onSeek(target);
+                return true;
+            case MotionEvent.ACTION_CANCEL:
+                if (!tracking) return false;
+                resetTouch(true);
+                return true;
+            default:
+                return super.onTouchEvent(event);
+        }
+    }
     @Override protected void onDraw(Canvas canvas) {
         if (rollRect.width() <= 0 || keyboardRect.width() <= 0) return;
-        double currentSeconds = score == null ? 0 : score.seconds((long) audio.position);
+        double currentSeconds = score == null ? 0 : score.seconds((long) (audio == null ? 0 : audio.position));
+        lastSeconds = currentSeconds;
         paint.setStyle(Paint.Style.FILL);
-        drawRoll(canvas, currentSeconds);
+        drawRoll(canvas, Double.isNaN(dragSeconds) ? currentSeconds : dragSeconds);
         drawKeyboard(canvas);
     }
 
@@ -383,9 +451,9 @@ final class PianoView extends View {
         long now = SystemClock.uptimeMillis();
         boolean compact = whites > 0 && keyboardRect.width() / whites < 28 * density;
         for (Key key : keys) {
-            long attackTime = audio.attackTime(key.pitch), age = now - attackTime;
+            long attackTime = audio == null ? 0 : audio.attackTime(key.pitch), age = now - attackTime;
             float pulse = attackTime > 0 && age >= 0 && age < ATTACK_FLASH_MS ? 1 - age / (float) ATTACK_FLASH_MS : 0;
-            boolean lit = audio.lit(key.pitch) || pulse > 0;
+            boolean lit = (audio != null && audio.lit(key.pitch)) || pulse > 0;
             int color = lit ? primary : key.black ? blackColor : whiteColor;
             paint.setColor(color);
             canvas.drawRoundRect(key.bounds, key.black ? 7 : 5, key.black ? 7 : 5, paint);

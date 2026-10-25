@@ -13,6 +13,13 @@ public class AdvancedMusicXmlTest {
     private String note(String step, int octave, int duration, int voice, int staff, String extra) {
         return "<note><pitch><step>" + step + "</step><octave>" + octave + "</octave></pitch><duration>" + duration + "</duration><voice>" + voice + "</voice><staff>" + staff + "</staff>" + extra + "</note>";
     }
+    private String grace(String step, int octave, int staff) {
+        return grace(step, 0, octave, staff);
+    }
+    private String grace(String step, int alter, int octave, int staff) {
+        return "<note><grace/><pitch><step>" + step + "</step>" + (alter == 0 ? "" : "<alter>" + alter + "</alter>") +
+            "<octave>" + octave + "</octave></pitch><voice>1</voice><staff>" + staff + "</staff></note>";
+    }
     private String bar(String step, String before, String after) { return "<measure>" + attributes() + before + note(step, 4, 1, 1, 1, "") + after + "</measure>"; }
     private String pitches(Score score) { return score.notes.stream().map(n -> Integer.toString(n.pitch)).collect(Collectors.joining(",")); }
     @Test public void dynamicsAndWedgeRespectStaffAndExactOffsets() throws Exception {
@@ -124,6 +131,30 @@ public class AdvancedMusicXmlTest {
         Score s = read("<measure><attributes><divisions>7</divisions><time><beats>1</beats><beat-type>4</beat-type></time></attributes>" + notes + "</measure>");
         assertEquals(480, s.length()); assertEquals(480, s.notes.get(6).end());
     }
+    @Test public void pedalDownAtNoteEndPrecedesThatNoteOff() {
+        Score s = new Score(); s.notes.add(new Score.Note(60, 0, 480, 90)); s.pedals.add(new Score.Pedal(480, true)); s.sort();
+        PlaybackProgram program = new PlaybackProgram(s);
+        PlaybackProgram.Event first = null;
+        for (PlaybackProgram.Event event : program.events) if (event.tick == 480) { first = event; break; }
+        assertNotNull(first); assertEquals(PlaybackProgram.PEDAL, first.type);
+    }
+    @Test public void authoredStaccatoShortensSoundingTimeOnly() throws Exception {
+        Score s = read("<measure>" + attributes() + note("C", 4, 4, 1, 1,
+            "<notations><articulations><staccato/></articulations></notations>") + "</measure>");
+        Score.Note note = s.notes.get(0);
+        assertEquals(Score.Note.STACCATO, note.articulation); assertEquals(1920, note.end()); assertEquals(960, note.soundingEnd());
+        assertTrue(s.features.contains("斷奏"));
+        PlaybackProgram program = new PlaybackProgram(s); long off = -1;
+        for (PlaybackProgram.Event event : program.events) if (event.type == PlaybackProgram.NOTE_OFF) off = event.tick;
+        assertEquals(960, off); assertEquals(960, program.noteEnds[0]);
+    }
+    @Test public void authoredTenutoKeepsFullSoundingTime() throws Exception {
+        Score s = read("<measure>" + attributes() + note("C", 4, 2, 1, 1,
+            "<notations><articulations><tenuto/></articulations></notations>") + "</measure>");
+        assertEquals(Score.Note.TENUTO, s.notes.get(0).articulation);
+        assertEquals(s.notes.get(0).end(), s.notes.get(0).soundingEnd());
+        assertTrue(s.features.contains("持音"));
+    }
     @Test public void pedalOrderAndPartsAreKeptIndependentInCompiledPlayback() throws Exception {
         String part1 = "<part id=\"P1\"><measure>" + attributes() + "<direction><direction-type><pedal type=\"start\"/></direction-type></direction>" + note("C", 4, 1, 1, 1, "") + "</measure></part>";
         String part2 = "<part id=\"P2\"><measure>" + attributes() + note("D", 4, 1, 1, 1, "") + "</measure></part>";
@@ -132,5 +163,32 @@ public class AdvancedMusicXmlTest {
         assertEquals(PlaybackProgram.PEDAL, program.events[0].type); assertEquals(0, program.events[0].part);
         score.mutedVoices.add(score.notes.get(0).channelKey()); PlaybackProgram muted = new PlaybackProgram(score);
         assertTrue(muted.initialMuted[0]); assertFalse(muted.initialMuted[1]);
+    }
+    @Test public void graceChordAtMeasureStartRestoresBassWithoutChangingMainTiming() throws Exception {
+        Score s = read("<measure>" + attributes() + note("C", 4, 1, 1, 1, "") + "</measure>" +
+            "<measure>" + attributes() + grace("A", 2, 2) + grace("C", 1, 3, 2) + grace("E", 3, 2) +
+            note("A", 3, 1, 1, 2, "") + note("A", 3, 1, 1, 2, "") + note("A", 3, 1, 1, 2, "") + note("A", 3, 1, 1, 2, "") + "</measure>");
+        assertEquals(8, s.notes.size());
+        assertEquals(3, s.notes.stream().filter(n -> n.pitch == 45 || n.pitch == 49 || n.pitch == 52).count());
+        Score.Note bass = s.notes.stream().filter(n -> n.pitch == 45).findFirst().get();
+        Score.Note third = s.notes.stream().filter(n -> n.pitch == 52).findFirst().get();
+        Score.Note main = s.notes.stream().filter(n -> n.pitch == 57 && n.start == 480).findFirst().get();
+        assertEquals(384, bass.start); assertEquals(32, bass.duration);
+        assertEquals(448, third.start); assertEquals(32, third.duration);
+        assertEquals(480, main.start); assertEquals(480, main.duration);
+    }
+    @Test public void graceSequenceLeadsIntoMainNoteAndDoesNotExtendBar() throws Exception {
+        Score s = read("<measure>" + attributes() + "<forward><duration>1</duration></forward>" +
+            grace("D", 6, 1) + grace("D", 6, 1) + note("E", 5, 1, 1, 1, "") + "</measure>");
+        assertEquals(3, s.notes.size());
+        assertEquals(86, s.notes.get(0).pitch); assertEquals(384, s.notes.get(0).start); assertEquals(48, s.notes.get(0).duration);
+        assertEquals(86, s.notes.get(1).pitch); assertEquals(432, s.notes.get(1).start); assertEquals(48, s.notes.get(1).duration);
+        assertEquals(76, s.notes.get(2).pitch); assertEquals(480, s.notes.get(2).start); assertEquals(480, s.notes.get(2).duration);
+        assertEquals(960, s.length());
+    }
+    @Test public void graceBeforeChordIsAttachedOnlyOnce() throws Exception {
+        Score s = read("<measure>" + attributes() + grace("D", 6, 1) + note("E", 5, 1, 1, 1, "") +
+            "<note><chord/><pitch><step>A</step><octave>5</octave></pitch><duration>1</duration><voice>1</voice><staff>1</staff></note></measure>");
+        assertEquals(3, s.notes.size()); assertEquals(1, s.notes.stream().filter(n -> n.pitch == 86).count());
     }
 }
